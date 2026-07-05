@@ -1,0 +1,9 @@
+# LuxMini device profile — copy to:
+#   ~/Library/Application Support/LuxMini/profile
+# Format (one active line):  KEY FORMAT MAX
+#   KEY    = 4-char SMC key for your Mac's front LED
+#   FORMAT = vv (write [v,v], most models) | v0 (write [v,0], older Intel case-LED)
+#   MAX    = device max brightness (usually 255)
+# The real per-model keys are provided by the device-profile service (see README);
+# this example ships a placeholder only.
+XXXX vv 255

@@ -1,0 +1,6 @@
+[toolchain]
+# Contributors and CI build on current stable. The crate's supported floor
+# (MSRV) is declared as `rust-version` in Cargo.toml; bumping it is a
+# deliberate, documented change (see CONTRIBUTING.md).
+channel = "stable"
+components = ["rustfmt", "clippy"]

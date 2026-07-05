@@ -1,0 +1,17 @@
+/target
+/dist
+.DS_Store
+*.swp
+
+# never commit a real device profile (holds the SMC key)
+/profile
+profile.local
+
+# device-profile service DB — holds the real SMC keys (the R&D moat), never publish
+/profiles.local.json
+/profiles/
+
+# internal strategy docs — never publish (moat, Pro pricing, R&D)
+/docs/CAHIER-DES-CHARGES.md
+/docs/LANDING-BRIEF.md
+/docs/VISION.md

@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt · clippy · test · build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      # `-- -D warnings` denies lints for our crate only; dependencies are
+      # built with --cap-lints allow by cargo, so this never fails on objc2.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Build (release)
+        run: cargo build --release
+
+  msrv:
+    name: build on MSRV (1.82)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.82
+        uses: dtolnay/rust-toolchain@1.82
+      - uses: Swatinem/rust-cache@v2
+      # RUSTUP_TOOLCHAIN overrides the repo's rust-toolchain.toml (pins stable)
+      # so this job genuinely exercises the declared minimum.
+      - name: Build with the declared minimum supported Rust version
+        run: cargo build
+        env:
+          RUSTUP_TOOLCHAIN: "1.82"
+
+  deny:
+    name: cargo-deny (licenses · advisories · bans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  shellcheck:
+    name: shellcheck (build/release scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck is preinstalled on the ubuntu runner image.
+      - run: shellcheck scripts/*.sh

@@ -1,0 +1,90 @@
+[package]
+name = "mac-led-tray"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.82"
+description = "LuxMini — turn off, dim, or schedule the front LED on your Mac, from the menu bar."
+authors = ["Bastien Cantet"]
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/bastiencantet/luxmini-public"
+keywords = ["macos", "led", "menu-bar", "smc", "mac-mini"]
+categories = ["gui", "os::macos-apis"]
+default-run = "mac-led-tray"
+# Not a crates.io library: it links a vendored Sparkle.framework and installs a
+# setuid helper, so it only builds from this repo. Build from source (see README).
+publish = false
+
+[[bin]]
+name = "mac-led-tray"
+path = "src/main.rs"
+
+[[bin]]
+name = "led-helper"
+path = "src/bin/led-helper.rs"
+
+[dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSString",
+    "NSGeometry",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSAlert",
+    "NSApplication",
+    "NSBox",
+    "NSButton",
+    "NSCell",
+    "NSColor",
+    "NSControl",
+    "NSFont",
+    "NSImage",
+    "NSImageView",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSScrollView",
+    "NSSlider",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSSwitch",
+    "NSTableColumn",
+    "NSTableView",
+    "NSText",
+    "NSTextField",
+    "NSView",
+    "NSWindow",
+] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+# Shared by both binaries (stable since Rust 1.74).
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Deliberately noisy for this app — re-allowed centrally.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+# Tighten the things that matter for an FFI/objc2 codebase.
+undocumented_unsafe_blocks = "warn"
+ptr_as_ptr = "warn"
+ref_as_ptr = "warn"
+borrow_as_ptr = "warn"
+# Panic-freedom: this is a menu-bar daemon that must never crash the user's
+# session. The whole tree is already free of these (verified), so enforcing
+# them is a regression guard, not a cleanup — any new panic path fails CI.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+unreachable = "warn"
+indexing_slicing = "warn"
+# NOT enabled on purpose: `arithmetic_side_effects` and `as_conversions` are
+# restriction lints that fire on provably-safe scaling/float→int math here
+# (all such casts saturate and carry a justified, scoped `#[allow]`). Enabling
+# them crate-wide would trade real readability for `#[allow]` noise — exactly
+# what these restriction lints are documented to cause in numeric code.

@@ -1,0 +1,30 @@
+# cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
+# Run locally with:  cargo deny check
+# CI enforces this on every PR (see .github/workflows/ci.yml).
+
+[advisories]
+version = 2
+# Fail on any security advisory or unmaintained crate in the tree.
+# Add a documented entry here only with a tracking issue link.
+ignore = []
+
+[licenses]
+version = 2
+# The whole dependency tree is permissive (objc2 ecosystem + libc + bitflags).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions are a warning (objc2 sub-crates can lag); wildcards and
+# yanked crates are hard errors.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

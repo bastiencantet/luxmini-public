@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>LuxMini</title>
+    <link>https://github.com/bastiencantet/luxmini-public</link>
+    <description>LuxMini — Mac Mini front LED controller, release feed</description>
+    <language>en</language>
+    <item>
+      <title>Version 0.2.0</title>
+      <sparkle:version>0.2.0</sparkle:version>
+      <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 20 Apr 2026 18:10:55 +0000</pubDate>
+      <description><![CDATA[Add 3 presets (brightness + effect) and Launch at Login toggle]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.2.0.dmg" sparkle:edSignature="e0YH7Hv8jP3425ipGFz38RNu/gzqhLGYsb2/AQL4RhbM94ORmRSLM+G9YOu/Tt7Uq/zK+ymG0Pkg2HthOPfgAw==" length="3986316" type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 0.2.1</title>
+      <sparkle:version>0.2.1</sparkle:version>
+      <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 20 Apr 2026 19:15:34 +0000</pubDate>
+      <description><![CDATA[Persist the LED state across quit, logout, and reboot — effects resume automatically.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.2.1.dmg" sparkle:edSignature="/VsLZRAQm3PHOHKEnh4wOCGVnh5Kq5pGGhFMEWhsOHjIgx9jXBtJOTNG3sYXI7wwyE0TgEuSaEjB5Q8seVpwAw==" length="3987880" type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 0.2.2</title>
+      <sparkle:version>0.2.2</sparkle:version>
+      <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 20 Apr 2026 19:19:33 +0000</pubDate>
+      <description><![CDATA[Add About panel]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.2.2.dmg" sparkle:edSignature="DcgIzgNOGCWkhtlVcVEX+lLVmzciVx9utz68k8R005wjzVn6sgbLhMD9Hwl/QNlCE5X3u1avqSMQg2lBlDkEDQ==" length="3989242" type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
