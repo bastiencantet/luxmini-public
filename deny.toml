@@ -17,6 +17,10 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.9
+# This crate itself ships under FSL-1.1-Apache-2.0 (a non-SPDX expression, via
+# `license-file`) and is `publish = false`, so skip the license check on our own
+# workspace crate — the `allow` list above governs third-party deps only.
+private = { ignore = true }
 
 [bans]
 # Duplicate versions are a warning (objc2 sub-crates can lag); wildcards and

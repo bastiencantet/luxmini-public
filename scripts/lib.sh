@@ -4,6 +4,9 @@
 
 # The canonical app version: the [package] version in Cargo.toml. This is the
 # single source of truth so a bundle never ships a stale hardcoded number.
+# The manifest path is an optional arg (defaults to Cargo.toml); callers pass
+# none by design.
+# shellcheck disable=SC2120
 cargo_version() {
     local manifest="${1:-Cargo.toml}"
     # First `version = "x.y.z"` line — [package] is the first table in the file.

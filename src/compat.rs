@@ -94,7 +94,9 @@ mod tests {
 
     #[test]
     fn mac_studio_is_supported() {
-        for m in ["Mac13,1", "Mac13,2", "Mac14,13", "Mac14,14", "Mac15,14", "Mac16,9"] {
+        for m in [
+            "Mac13,1", "Mac13,2", "Mac14,13", "Mac14,14", "Mac15,14", "Mac16,9",
+        ] {
             assert!(is_supported(m), "{m} (Mac Studio) should be supported");
         }
     }
