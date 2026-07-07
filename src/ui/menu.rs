@@ -151,8 +151,8 @@ fn build_control_view(
     );
     container.addSubview(&percent_label);
 
-    // SAFETY: initWithFrame: on a freshly alloc'd NSSlider returns the initialized control.
     #[allow(clippy::suboptimal_flops)] // readability; sub-ULP difference vs mul_add
+    // SAFETY: initWithFrame: on a freshly alloc'd NSSlider returns the initialized control.
     let slider: Retained<NSSlider> = unsafe {
         let alloc = NSSlider::alloc(mtm);
         msg_send![
