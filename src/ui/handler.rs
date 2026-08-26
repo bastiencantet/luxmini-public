@@ -199,6 +199,11 @@ define_class!(
             open_feedback();
         }
 
+        #[unsafe(method(openApiDocs:))]
+        fn open_api_docs(&self, _sender: &AnyObject) {
+            open_url("https://github.com/bastiencantet/luxmini-public#local-control-api");
+        }
+
         #[unsafe(method(openSettings:))]
         fn open_settings(&self, _sender: &AnyObject) {
             if let Some(mtm) = MainThreadMarker::new() {

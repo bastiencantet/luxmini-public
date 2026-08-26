@@ -29,6 +29,7 @@ pub struct SettingsRefs {
     pub lon: Retained<NSTextField>,
     pub login: Retained<NSButton>,
     pub hide: Retained<NSButton>,
+    pub api: Retained<NSButton>,
     pub save: Retained<NSButton>,
     pub sections: Vec<Retained<NSView>>,
     /// Sidebar cell views, returned to the source-list table by `viewForTableColumn:row:`.
@@ -422,8 +423,32 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         ),
         prect(92.0, 22.0, 16.0, 396.0),
     );
+    let api = checkbox(
+        mtm,
+        i18n::s(
+            "Enable local control API (localhost, off by default)",
+            "Activer l'API locale de contrôle (localhost, désactivée par défaut)",
+        ),
+        prect(128.0, 22.0, 16.0, 396.0),
+    );
     p_gen.addSubview(&login);
     p_gen.addSubview(&hide);
+    p_gen.addSubview(&api);
+    p_gen.addSubview(&hint(
+        mtm,
+        i18n::s(
+            "Lets Shortcuts, Home Assistant, and scripts drive the LED. Disabling takes effect after a restart.",
+            "Permet à Shortcuts, Home Assistant et vos scripts de piloter la LED. La désactivation prend effet au redémarrage.",
+        ),
+        prect(150.0, 32.0, 34.0, 372.0),
+    ));
+    p_gen.addSubview(&push_button(
+        mtm,
+        handler,
+        i18n::s("API docs\u{2026}", "Doc de l'API\u{2026}"),
+        sel!(openApiDocs:),
+        prect(188.0, 28.0, 34.0, 150.0),
+    ));
 
     // ── Pane 4: About ───────────────────────────────────────────────────
     let p_about = pane(mtm);
@@ -496,6 +521,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         lon,
         login,
         hide,
+        api,
         save,
         sections,
         row_views,
@@ -558,6 +584,7 @@ fn populate(handler: &Handler) {
     }
     set_state(&r.login, launch_at_login::is_enabled());
     set_state(&r.hide, preferences::load_hide_icon());
+    set_state(&r.api, preferences::api_enabled());
 }
 
 /// Re-fill just the latitude/longitude fields from the saved location (called
@@ -611,6 +638,19 @@ pub fn save(handler: &Handler) {
     let hide_icon = is_on(&r.hide);
     preferences::save_hide_icon(hide_icon);
     handler.set_icon_hidden(hide_icon);
+
+    // Local API: persist the toggle and, if it was just switched on, start it
+    // now (turning it off only takes effect on the next launch — the bound
+    // socket is released when the app quits).
+    let api_was_on = preferences::api_enabled();
+    let api_now_on = is_on(&r.api);
+    preferences::save_api_enabled(api_now_on);
+    if api_now_on && !api_was_on {
+        crate::api::maybe_start();
+    } else if !api_now_on && api_was_on {
+        crate::api::stop();
+    }
+
     schedule::restart();
 
     // If the user enabled sunset-off but left the location blank, fetch it

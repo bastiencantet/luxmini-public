@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-20
+
+### Added
+- **Automatic device-profile delivery**: LuxMini fetches only the profile matching
+  the current Mac from the profiles API, validates it, and caches it locally.
+- **Local control API** *(opt-in, localhost-only)*: a tiny dependency-free HTTP
+  server so local tools — Home Assistant, Apple Shortcuts, AppleScript, shell
+  scripts — can read and drive the LED with no cloud or account. `GET /led`,
+  `POST /led` (`on` / `brightness` / `effect`), `GET /healthz`. Off by default;
+  enable via the `api.enabled` preference, with an optional bearer token
+  (`api.token`). Binds `127.0.0.1` only.
+
+### Fixed
+- Disabling the local API now releases the listener immediately instead of
+  requiring an app restart. Requests have bounded I/O, header and body handling,
+  and the CLI now reports non-success HTTP responses as errors.
+
 ## [0.3.0]
 
 ### Added
@@ -42,6 +59,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Effects submenu (blink / pulse / SOS / strobe), launch-at-login, and Sparkle
   auto-updates.
 
-[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/bastiencantet/luxmini-public/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/bastiencantet/luxmini-public/releases/tag/v0.2.2

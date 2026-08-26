@@ -128,6 +128,31 @@ pub fn save_hide_icon(hidden: bool) {
     set_bool("ui.hide_icon", hidden);
 }
 
+/// Local control API (see `crate::api`) — opt-in, off by default, localhost-only.
+/// Toggled from Settings › General; also settable via
+/// `defaults write com.bastiencantet.LuxMini api.enabled -bool true`.
+pub fn api_enabled() -> bool {
+    get_bool("api.enabled")
+}
+
+pub fn save_api_enabled(enabled: bool) {
+    set_bool("api.enabled", enabled);
+}
+
+/// Port for the local API. Defaults to 4470 when unset or out of range.
+pub fn api_port() -> u16 {
+    u16::try_from(get_int("api.port"))
+        .ok()
+        .filter(|&p| p != 0)
+        .unwrap_or(4470)
+}
+
+/// Optional bearer token gating the local API. `None` → no token (localhost is
+/// the trust boundary); set one to require `Authorization: Bearer <token>`.
+pub fn api_token() -> Option<String> {
+    get_str("api.token").filter(|s| !s.is_empty())
+}
+
 /// Saturating `i64` → `u8` brightness clamp. Manual (keeps it `const`); the cast is lossless.
 const fn clamp_brightness(v: i64) -> u8 {
     if v <= 0 {

@@ -1,0 +1,24 @@
+# Home Assistant — control the Mac front LED via LuxMini.
+#
+# Prerequisites:
+#   - the LuxMini app running with the local API enabled (Settings > General),
+#   - the `luxmini` binary on your Home Assistant host's PATH,
+#   - if you set a token in the app, export LUXMINI_API_TOKEN for HA.
+#
+# On/off as a command_line switch (state parsed from `luxmini get`'s JSON):
+switch:
+  - platform: command_line
+    switches:
+      mac_front_led:
+        friendly_name: Mac front LED
+        command_on: "luxmini on"
+        command_off: "luxmini off"
+        command_state: "luxmini get"
+        value_template: '{{ "\"on\":true" in value }}'
+
+# Brightness and effects as shell commands, callable from automations/scripts:
+#   service: shell_command.mac_led_brightness   data: { pct: 128 }
+#   service: shell_command.mac_led_effect       data: { name: pulse }
+shell_command:
+  mac_led_brightness: "luxmini brightness {{ pct }}"
+  mac_led_effect: "luxmini effect {{ name }}"

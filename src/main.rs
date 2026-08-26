@@ -1,5 +1,6 @@
 //! `LuxMini` menu-bar app entry point: detect the Mac model, build the `AppKit` tray UI, restore last state, run the `NSApplication` loop.
 
+mod api;
 mod auth;
 mod compat;
 mod effects;
@@ -64,6 +65,9 @@ fn main() {
     }
 
     sparkle::init();
+
+    // Optional local control API (opt-in via `api.enabled`, localhost only).
+    api::maybe_start();
 
     app.run();
 }

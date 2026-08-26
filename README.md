@@ -24,8 +24,8 @@ software: switch it **off**, **dim** it, or have it **auto-dim at night / after 
 
 - **Off / On** and **brightness** for the front LED.
 - **Auto-dim** *(in progress)* — lower it at night or after sunset, set-and-forget.
-- **Multi-model** *(in progress)* — Mac mini (Intel, T2, Apple Silicon) and Studio via
-  per-model device profiles.
+- **Multi-model** — Mac mini (Intel, T2, Apple Silicon) and community-tested Mac Studio
+  models via per-model device profiles.
 - Menu-bar app, discreet, launches at login, auto-updates.
 - **Fun stuff** *(optional, tucked away)* — blink / pulse / SOS. Most people don't want
   these on a status light; they live in their own submenu.
@@ -38,7 +38,7 @@ LuxMini is **not notarized yet** (that needs a paid Apple Developer account — 
 **Build it yourself** *(most trustworthy — you compile the exact source):*
 ```sh
 git clone https://github.com/bastiencantet/luxmini-public
-cd mac-led-tray
+cd luxmini-public
 make run          # builds + runs; first launch asks once to install the helper
 ```
 Requires Rust (`rustup`) and Xcode command-line tools.
@@ -79,8 +79,9 @@ shipping a profile instead of a new build.
 
 ## Privacy
 
-No tracking, no analytics. The only network calls are: checking for updates, and (planned)
-fetching your Mac's device profile once, then cached locally. Everything is in the source.
+No tracking, no analytics. Network calls are limited to checking for updates and fetching
+the profile matching your Mac model from the LuxMini API. The profile is then cached locally
+in `~/Library/Application Support/LuxMini/profile`.
 
 ## Support
 

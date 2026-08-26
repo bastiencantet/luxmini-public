@@ -2,16 +2,24 @@
 //!
 //! The SMC mechanism (write a PWM value to a 4-char key) lives in the source; the
 //! per-model specifics — which key, what byte layout, the max value — are **data**,
-//! not code, loaded at runtime from a profile file. Keeping these values out of the
-//! binary means a new Mac model can be supported by shipping a profile, not a new
-//! build, and no model-specific constants are baked into the executable.
+//! not code. Profiles are fetched for the current hardware model from the
+//! `LuxMini` API, validated, and cached locally. No profile catalog or shared
+//! credential is baked into the executable.
 //!
 //! Profile file (plain text, one active line `KEY FORMAT MAX`):
 //!   ~/Library/Application Support/LuxMini/profile
 //! e.g.   `XXXX vv 255`     (vv = write [v,v];  v0 = write [v,0])
 //! See `profile.example` in the repo for the format (no real key shipped).
 
-use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+const PROFILE_TOKEN_URL: &str = "https://api.luxmini.bastiencantet.com/api/v1/profile-token";
+const PROFILE_URL: &str = "https://api.luxmini.bastiencantet.com/api/v1/profile";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceProfile {
@@ -24,21 +32,99 @@ pub struct DeviceProfile {
     pub max: u8,
 }
 
+#[derive(Serialize)]
+struct TokenRequest<'a> {
+    model_id: &'a str,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: String,
+}
+
+#[derive(Deserialize)]
+struct ProfileResponse {
+    model_id: String,
+    key: String,
+    format: String,
+    max: u8,
+}
+
 fn profile_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join("Library/Application Support/LuxMini/profile"))
 }
 
 impl DeviceProfile {
-    /// Load the local profile, or `None` if absent/invalid (→ LED control is
-    /// simply unavailable until a profile for this model is installed/fetched).
+    /// Load a cached profile or fetch and cache the profile matching this Mac.
     pub fn load() -> Option<Self> {
-        let text = std::fs::read_to_string(profile_path()?).ok()?;
+        let path = profile_path()?;
+        if let Some(profile) = Self::load_file(&path) {
+            return Some(profile);
+        }
+        let model = crate::compat::get_mac_model();
+        let profile = Self::fetch(&model)?;
+        if let Err(error) = profile.cache(&path) {
+            eprintln!("cannot cache device profile: {error}");
+        }
+        Some(profile)
+    }
+
+    fn load_file(path: &Path) -> Option<Self> {
+        let text = std::fs::read_to_string(path).ok()?;
         let line = text
             .lines()
             .map(str::trim)
             .find(|l| !l.is_empty() && !l.starts_with('#'))?;
         Self::parse_line(line)
+    }
+
+    fn fetch(model: &str) -> Option<Self> {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(3))
+            .timeout_read(Duration::from_secs(5))
+            .timeout_write(Duration::from_secs(5))
+            .build();
+        let token: TokenResponse = agent
+            .post(PROFILE_TOKEN_URL)
+            .send_json(TokenRequest { model_id: model })
+            .ok()?
+            .into_json()
+            .ok()?;
+        let response: ProfileResponse = agent
+            .get(PROFILE_URL)
+            .query("model_id", model)
+            .set("Authorization", &format!("Bearer {}", token.access_token))
+            .call()
+            .ok()?
+            .into_json()
+            .ok()?;
+        Self::from_response(&response, model)
+    }
+
+    fn from_response(response: &ProfileResponse, expected_model: &str) -> Option<Self> {
+        if response.model_id != expected_model
+            || !matches!(response.format.as_str(), "vv" | "v0")
+            || response.max == 0
+        {
+            return None;
+        }
+        let line = format!("{} {} {}", response.key, response.format, response.max);
+        Self::parse_line(&line)
+    }
+
+    fn cache(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let format = if self.replicate { "vv" } else { "v0" };
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        writeln!(file, "{} {format} {}", self.key, self.max)
     }
 
     /// Parse a single `KEY FORMAT MAX` profile line. Pure (no filesystem), so it
@@ -73,7 +159,7 @@ impl DeviceProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::DeviceProfile;
+    use super::{DeviceProfile, ProfileResponse};
 
     #[test]
     fn parses_full_line() {
@@ -181,5 +267,24 @@ mod tests {
             max: 200,
         };
         assert_eq!(single_capped.bytes(255), [200, 0]);
+    }
+
+    #[test]
+    fn validates_api_response_for_the_requested_model() {
+        let valid = ProfileResponse {
+            model_id: "Mac16,9".into(),
+            key: "ABCD".into(),
+            format: "vv".into(),
+            max: 255,
+        };
+        assert!(DeviceProfile::from_response(&valid, "Mac16,9").is_some());
+
+        let mismatched = ProfileResponse {
+            model_id: "Mac13,1".into(),
+            key: "ABCD".into(),
+            format: "vv".into(),
+            max: 255,
+        };
+        assert!(DeviceProfile::from_response(&mismatched, "Mac16,9").is_none());
     }
 }

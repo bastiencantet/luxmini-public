@@ -12,6 +12,7 @@ require cargo lipo codesign
 APP_NAME="LuxMini"
 BUNDLE_ID="com.bastiencantet.luxmini"
 VERSION="${VERSION:-$(cargo_version)}"
+TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 APP_DIR="dist/${APP_NAME}.app"
 APPCAST_URL="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/appcast.xml"
 SPARKLE_PUBLIC_KEY="$(cat "${ROOT}/.sparkle_public_key")"
@@ -29,12 +30,12 @@ mkdir -p "${APP_DIR}/Contents/Resources"
 mkdir -p "${APP_DIR}/Contents/Frameworks"
 
 lipo -create \
-    "target/aarch64-apple-darwin/release/mac-led-tray" \
-    "target/x86_64-apple-darwin/release/mac-led-tray" \
+    "${TARGET_DIR}/aarch64-apple-darwin/release/mac-led-tray" \
+    "${TARGET_DIR}/x86_64-apple-darwin/release/mac-led-tray" \
     -output "${APP_DIR}/Contents/MacOS/mac-led-tray"
 lipo -create \
-    "target/aarch64-apple-darwin/release/led-helper" \
-    "target/x86_64-apple-darwin/release/led-helper" \
+    "${TARGET_DIR}/aarch64-apple-darwin/release/led-helper" \
+    "${TARGET_DIR}/x86_64-apple-darwin/release/led-helper" \
     -output "${APP_DIR}/Contents/MacOS/led-helper"
 chmod +x "${APP_DIR}/Contents/MacOS/mac-led-tray"
 chmod +x "${APP_DIR}/Contents/MacOS/led-helper"
