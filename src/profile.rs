@@ -20,6 +20,10 @@ use std::time::Duration;
 
 const PROFILE_TOKEN_URL: &str = "https://api.luxmini.bastiencantet.com/api/v1/profile-token";
 const PROFILE_URL: &str = "https://api.luxmini.bastiencantet.com/api/v1/profile";
+const CANDIDATE_PROFILE_URL: &str =
+    "https://api.luxmini.bastiencantet.com/api/v1/candidate-profile";
+const PROFILE_VALIDATION_URL: &str =
+    "https://api.luxmini.bastiencantet.com/api/v1/profile-validation";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceProfile {
@@ -48,6 +52,12 @@ struct ProfileResponse {
     key: String,
     format: String,
     max: u8,
+}
+
+#[derive(Serialize)]
+struct ValidationRequest<'a> {
+    model_id: &'a str,
+    outcome: &'a str,
 }
 
 fn profile_path() -> Option<PathBuf> {
@@ -79,27 +89,79 @@ impl DeviceProfile {
         Self::parse_line(line)
     }
 
-    fn fetch(model: &str) -> Option<Self> {
-        let agent = ureq::AgentBuilder::new()
+    fn agent() -> ureq::Agent {
+        ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(3))
             .timeout_read(Duration::from_secs(5))
             .timeout_write(Duration::from_secs(5))
-            .build();
+            .build()
+    }
+
+    fn token(agent: &ureq::Agent, model: &str) -> Option<String> {
         let token: TokenResponse = agent
             .post(PROFILE_TOKEN_URL)
             .send_json(TokenRequest { model_id: model })
             .ok()?
             .into_json()
             .ok()?;
+        Some(token.access_token)
+    }
+
+    fn fetch_from(model: &str, url: &str) -> Option<Self> {
+        let agent = Self::agent();
+        let token = Self::token(&agent, model)?;
         let response: ProfileResponse = agent
-            .get(PROFILE_URL)
+            .get(url)
             .query("model_id", model)
-            .set("Authorization", &format!("Bearer {}", token.access_token))
+            .set("Authorization", &format!("Bearer {token}"))
             .call()
             .ok()?
             .into_json()
             .ok()?;
         Self::from_response(&response, model)
+    }
+
+    fn fetch(model: &str) -> Option<Self> {
+        Self::fetch_from(model, PROFILE_URL)
+    }
+
+    /// Fetch a pending profile for the explicit visual hardware test. Candidate
+    /// profiles are never cached implicitly.
+    pub fn fetch_candidate(model: &str) -> Option<Self> {
+        Self::fetch_from(model, CANDIDATE_PROFILE_URL)
+    }
+
+    /// Return a locally cached profile without contacting the API.
+    pub fn load_cached() -> Option<Self> {
+        Self::load_file(&profile_path()?)
+    }
+
+    /// Cache a candidate only after the user has visually confirmed the fade.
+    pub fn cache_validated(&self) -> std::io::Result<()> {
+        let path = profile_path().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "home directory unavailable")
+        })?;
+        self.cache(&path)
+    }
+
+    /// Send an anonymous validation outcome. This is best-effort and contains
+    /// only the hardware model and the answer; no serial or installation ID.
+    pub fn report_validation(model: &str, outcome: &str) -> bool {
+        if !matches!(outcome, "yes" | "no" | "technical_error") {
+            return false;
+        }
+        let agent = Self::agent();
+        let Some(token) = Self::token(&agent, model) else {
+            return false;
+        };
+        agent
+            .post(PROFILE_VALIDATION_URL)
+            .set("Authorization", &format!("Bearer {token}"))
+            .send_json(ValidationRequest {
+                model_id: model,
+                outcome,
+            })
+            .is_ok()
     }
 
     fn from_response(response: &ProfileResponse, expected_model: &str) -> Option<Self> {

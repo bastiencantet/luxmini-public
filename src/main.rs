@@ -9,6 +9,7 @@ mod i18n;
 mod launch_at_login;
 mod led;
 mod location;
+mod onboarding;
 mod preferences;
 mod profile;
 mod schedule;
@@ -31,12 +32,26 @@ fn main() {
 
     let model = compat::get_mac_model();
     eprintln!("detected Mac model: {model}");
-    if !compat::is_supported(&model) && !compat::show_unsupported_alert(mtm, &model) {
-        return;
-    }
+    let initial_state = if compat::is_pending(&model) {
+        if preferences::profile_validated_for(&model)
+            && profile::DeviceProfile::load_cached().is_some()
+        {
+            LedState::new()
+        } else {
+            let Some(state) = onboarding::run(mtm, &model) else {
+                return;
+            };
+            state
+        }
+    } else {
+        if !compat::is_supported(&model) && !compat::show_unsupported_alert(mtm, &model) {
+            return;
+        }
+        LedState::new()
+    };
 
     match STATE.lock() {
-        Ok(mut state) => *state = Some(LedState::new()),
+        Ok(mut state) => *state = Some(initial_state),
         Err(err) => {
             eprintln!("LED state lock poisoned at startup: {err}");
             return;

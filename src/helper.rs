@@ -57,6 +57,10 @@ fn elevate_helper(path: &Path) -> std::io::Result<()> {
 
 impl Helper {
     pub fn spawn() -> std::io::Result<Self> {
+        Self::spawn_with_profile(DeviceProfile::load())
+    }
+
+    pub fn spawn_with_profile(profile: Option<DeviceProfile>) -> std::io::Result<Self> {
         let exe_dir = std::env::current_exe()?
             .parent()
             .map(std::path::Path::to_path_buf)
@@ -91,7 +95,6 @@ impl Helper {
             .ok_or_else(|| std::io::Error::other("helper stdout pipe missing"))?;
         let stdout = BufReader::new(stdout);
 
-        let profile = DeviceProfile::load();
         if profile.is_none() {
             eprintln!("no device profile installed — LED control unavailable for this Mac model");
         }

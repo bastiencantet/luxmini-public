@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>LuxMini</title>
-    <link>https://github.com/bastiencantet/luxmini-public</link>
+    <link>https://github.com/bastiencantet/mac-led-tray</link>
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
@@ -31,6 +31,24 @@
       <pubDate>Mon, 20 Apr 2026 19:19:33 +0000</pubDate>
       <description><![CDATA[Add About panel]]></description>
       <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.2.2.dmg" sparkle:edSignature="DcgIzgNOGCWkhtlVcVEX+lLVmzciVx9utz68k8R005wjzVn6sgbLhMD9Hwl/QNlCE5X3u1avqSMQg2lBlDkEDQ==" length="3989242" type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 0.3.1</title>
+      <sparkle:version>0.3.1</sparkle:version>
+      <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 26 Aug 2026 08:38:17 +0000</pubDate>
+      <description><![CDATA[Mac Studio support (M1 through M4), automatic model-specific profile delivery, auto-dim, settings improvements, and a hardened opt-in local control API.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.3.1.dmg" sparkle:edSignature="Rkyd89ULgt9LnqnhI567e6QWC+ePiK7Pc56r+aTvjOCZz9tq7ykdZdhW6TpuYkX1uJ7RMjmLkpP3AG646iZzDQ==" length="5872367" type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 0.3.2</title>
+      <sparkle:version>0.3.2</sparkle:version>
+      <sparkle:shortVersionString>0.3.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 26 Aug 2026 09:30:52 +0000</pubDate>
+      <description><![CDATA[Safe hardware validation onboarding for pending Mac models, including the 2026 Mac mini. The LED fade test restores full brightness, enables a confirmed profile only on that Mac, and submits an anonymous Yes/No result for owner review.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.3.2.dmg" sparkle:edSignature="TJRcSUj6hto4tB30OhB1sckjHwdA7iLWXrEArFOKbm0DwLBCIr5UrEmZfavhs6DyIN6swmGU2/eL53CgdxM1DA==" length="5892472" type="application/octet-stream" />
     </item>
   </channel>
 </rss>

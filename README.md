@@ -24,8 +24,9 @@ software: switch it **off**, **dim** it, or have it **auto-dim at night / after 
 
 - **Off / On** and **brightness** for the front LED.
 - **Auto-dim** *(in progress)* — lower it at night or after sunset, set-and-forget.
-- **Multi-model** — Mac mini (Intel, T2, Apple Silicon) and community-tested Mac Studio; upcoming 2026 models are recognized but remain disabled pending hardware validation
-  models via per-model device profiles.
+- **Multi-model** — Mac mini (Intel, T2, Apple Silicon) and community-tested Mac
+  Studio, with a safe visual onboarding that can validate a pending new model
+  on real hardware through per-model device profiles.
 - Menu-bar app, discreet, launches at login, auto-updates.
 - **Fun stuff** *(optional, tucked away)* — blink / pulse / SOS. Most people don't want
   these on a status light; they live in their own submenu.
@@ -77,10 +78,48 @@ The per-model addressing — *which* SMC channel each model uses — lives in a 
 loaded at runtime rather than hardcoded, so the app stays clean and supports a new model by
 shipping a profile instead of a new build.
 
+## Local control API
+
+LuxMini can expose a tiny **local HTTP API** so other tools — Apple Shortcuts,
+`AppleScript`, Home Assistant, shell scripts — can read and drive the LED. It is
+**off by default**, **binds `127.0.0.1` only** (never the network), and there is
+no cloud or account involved. Turn it on in **Settings › General → “Enable local
+control API”**; optionally set a bearer token (`api.token`).
+
+Endpoints (default port `4470`):
+
+| Method & path | Body | Result |
+|---|---|---|
+| `GET /led` | — | `{ "on": bool, "brightness": 0-255, "max": 255 }` |
+| `POST /led` | `{ "on": bool }` / `{ "brightness": 0-255 }` / `{ "effect": "blink\|blinkfast\|pulse\|sos\|strobe\|none" }` | applies it, returns the new state |
+| `GET /healthz` | — | `{ "status": "ok" }` |
+
+The bundled **`luxmini` CLI** wraps it:
+
+```sh
+luxmini get
+luxmini brightness 128
+luxmini effect blink
+luxmini off
+```
+
+Or hit it directly:
+
+```sh
+curl -s http://127.0.0.1:4470/led
+curl -s -X POST http://127.0.0.1:4470/led -d '{"brightness":128}'
+```
+
+Ready-to-use recipes for Home Assistant, AppleScript, and the shell are in
+[`examples/`](examples/). For Apple Shortcuts, use **Run Shell Script**
+(`luxmini …`) or **Get Contents of URL** against the endpoints above.
+
 ## Privacy
 
-No tracking, no analytics. Network calls are limited to checking for updates and fetching
-the profile matching your Mac model from the LuxMini API. The profile is then cached locally
+No tracking, no analytics. Network calls are limited to checking for updates,
+fetching the profile matching your Mac model, and—only after an explicit pending
+hardware test—sending the model plus a `yes`, `no`, or `technical_error` result.
+No serial number or installation ID is sent. Validated profiles are cached locally
 in `~/Library/Application Support/LuxMini/profile`.
 
 ## Support

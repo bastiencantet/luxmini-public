@@ -59,6 +59,18 @@ impl LedState {
         }
     }
 
+    pub const fn with_helper(helper: Helper) -> Self {
+        Self {
+            helper: Some(helper),
+            is_on: true,
+            brightness: 0xff,
+            manual_on: true,
+            manual_brightness: 0xff,
+            effect_stop: None,
+            current_effect: None,
+        }
+    }
+
     fn write(&mut self, value: u8) {
         if let Some(ref mut h) = self.helper {
             if let Err(e) = h.write_led(value) {

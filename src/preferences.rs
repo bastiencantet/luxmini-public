@@ -128,6 +128,17 @@ pub fn save_hide_icon(hidden: bool) {
     set_bool("ui.hide_icon", hidden);
 }
 
+/// A candidate profile is trusted locally only for the exact model that the
+/// user visually validated. Storing the model avoids enabling a future Mac by
+/// accident when preferences are migrated to another machine.
+pub fn profile_validated_for(model: &str) -> bool {
+    get_str("profile.validated_model").as_deref() == Some(model)
+}
+
+pub fn save_validated_profile_model(model: &str) {
+    set_str("profile.validated_model", Some(model));
+}
+
 /// Local control API (see `crate::api`) — opt-in, off by default, localhost-only.
 /// Toggled from Settings › General; also settable via
 /// `defaults write com.bastiencantet.LuxMini api.enabled -bool true`.

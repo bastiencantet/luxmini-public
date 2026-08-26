@@ -6,11 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-26
+
 ### Added
 
-- Recognition and private candidate profiles for the 2026 Mac mini identifiers
-  (`Mac18,5` M6 and `Mac17,16` M5 Pro). They remain deliberately disabled until
-  physical LED validation is possible after September 22.
+- Safe hardware-validation onboarding for pending Mac models. LuxMini explains
+  the test, fades the front LED, restores full brightness, and asks the user to
+  confirm what they saw.
+- Recognition and isolated candidate profiles for the 2026 Mac mini identifiers
+  (`Mac18,5` M6 and `Mac17,16` M5 Pro). A successful visual test enables the
+  exact profile locally and sends only the model and Yes/No outcome; it never
+  promotes support globally without owner review.
 
 ## [0.3.1] - 2026-08-20
 
@@ -65,7 +71,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Effects submenu (blink / pulse / SOS / strobe), launch-at-login, and Sparkle
   auto-updates.
 
-[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/bastiencantet/luxmini-public/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/bastiencantet/luxmini-public/releases/tag/v0.2.2
