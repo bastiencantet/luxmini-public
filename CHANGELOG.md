@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Recognition and private candidate profiles for the 2026 Mac mini identifiers
+  (`Mac18,5` M6 and `Mac17,16` M5 Pro). They remain deliberately disabled until
+  physical LED validation is possible after September 22.
+
 ## [0.3.1] - 2026-08-20
 
 ### Added

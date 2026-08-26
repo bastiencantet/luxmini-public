@@ -24,7 +24,7 @@ software: switch it **off**, **dim** it, or have it **auto-dim at night / after 
 
 - **Off / On** and **brightness** for the front LED.
 - **Auto-dim** *(in progress)* — lower it at night or after sunset, set-and-forget.
-- **Multi-model** — Mac mini (Intel, T2, Apple Silicon) and community-tested Mac Studio
+- **Multi-model** — Mac mini (Intel, T2, Apple Silicon) and community-tested Mac Studio; upcoming 2026 models are recognized but remain disabled pending hardware validation
   models via per-model device profiles.
 - Menu-bar app, discreet, launches at login, auto-updates.
 - **Fun stuff** *(optional, tucked away)* — blink / pulse / SOS. Most people don't want

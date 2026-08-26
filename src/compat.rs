@@ -20,6 +20,14 @@ const SUPPORTED_EXACT: &[&str] = &[
     "Mac16,9",  // M4 Max (2025)
 ];
 
+// Recognized ahead of availability, but deliberately not enabled until a real
+// machine confirms the candidate LED profile. Keep this separate from
+// `SUPPORTED_EXACT` so a release cannot silently claim hardware validation.
+const PENDING_EXACT: &[&str] = &[
+    "Mac18,5",  // Mac mini M6 (2026)
+    "Mac17,16", // Mac mini M5 Pro (2026)
+];
+
 /// `runModal` returns this when the second-added button ("Open Anyway") is clicked.
 const NS_ALERT_SECOND_BUTTON_RETURN: isize = 1001;
 
@@ -38,6 +46,11 @@ pub fn get_mac_model() -> String {
 #[must_use]
 pub fn is_supported(model: &str) -> bool {
     model.starts_with("Macmini") || SUPPORTED_EXACT.contains(&model)
+}
+
+#[must_use]
+pub fn is_pending(model: &str) -> bool {
+    PENDING_EXACT.contains(&model)
 }
 
 pub fn show_unsupported_alert(mtm: MainThreadMarker, model: &str) -> bool {
@@ -60,7 +73,15 @@ pub fn show_unsupported_alert(mtm: MainThreadMarker, model: &str) -> bool {
         "Unsupported Mac",
         "Mac non supporté",
     )));
-    let info = if crate::i18n::fr() {
+    let info = if is_pending(model) && crate::i18n::fr() {
+        format!(
+            "Ce nouveau Mac mini ({model_display}) est reconnu, mais son profil LED attend une validation matérielle."
+        )
+    } else if is_pending(model) {
+        format!(
+            "This new Mac mini ({model_display}) is recognized, but its LED profile is awaiting hardware validation."
+        )
+    } else if crate::i18n::fr() {
         format!("Ce modèle ({model_display}) n'est pas dans la liste des Mac supportés.")
     } else {
         format!("This model ({model_display}) is not in the list of supported Macs.")
@@ -98,6 +119,17 @@ mod tests {
             "Mac13,1", "Mac13,2", "Mac14,13", "Mac14,14", "Mac15,14", "Mac16,9",
         ] {
             assert!(is_supported(m), "{m} (Mac Studio) should be supported");
+        }
+    }
+
+    #[test]
+    fn mac_mini_2026_is_recognized_as_pending() {
+        for m in ["Mac18,5", "Mac17,16"] {
+            assert!(
+                !is_supported(m),
+                "{m} must not be enabled before validation"
+            );
+            assert!(super::is_pending(m), "{m} should be recognized as pending");
         }
     }
 
