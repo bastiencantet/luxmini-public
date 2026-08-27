@@ -26,6 +26,8 @@ const SUPPORTED_EXACT: &[&str] = &[
 const PENDING_EXACT: &[&str] = &[
     "Mac18,5",  // Mac mini M6 (2026)
     "Mac17,16", // Mac mini M5 Pro (2026)
+    "Mac17,14", // Mac Studio M5 Max (2026)
+    "Mac17,15", // Mac Studio M5 Ultra (2026)
 ];
 
 /// `runModal` returns this when the second-added button ("Open Anyway") is clicked.
@@ -75,11 +77,11 @@ pub fn show_unsupported_alert(mtm: MainThreadMarker, model: &str) -> bool {
     )));
     let info = if is_pending(model) && crate::i18n::fr() {
         format!(
-            "Ce nouveau Mac mini ({model_display}) est reconnu, mais son profil LED attend une validation matérielle."
+            "Ce nouveau Mac ({model_display}) est reconnu, mais son profil LED attend une validation matérielle."
         )
     } else if is_pending(model) {
         format!(
-            "This new Mac mini ({model_display}) is recognized, but its LED profile is awaiting hardware validation."
+            "This new Mac ({model_display}) is recognized, but its LED profile is awaiting hardware validation."
         )
     } else if crate::i18n::fr() {
         format!("Ce modèle ({model_display}) n'est pas dans la liste des Mac supportés.")
@@ -123,8 +125,8 @@ mod tests {
     }
 
     #[test]
-    fn mac_mini_2026_is_recognized_as_pending() {
-        for m in ["Mac18,5", "Mac17,16"] {
+    fn new_2026_macs_are_recognized_as_pending() {
+        for m in ["Mac18,5", "Mac17,16", "Mac17,14", "Mac17,15"] {
             assert!(
                 !is_supported(m),
                 "{m} must not be enabled before validation"

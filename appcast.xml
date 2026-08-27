@@ -50,5 +50,14 @@
       <description><![CDATA[Safe hardware validation onboarding for pending Mac models, including the 2026 Mac mini. The LED fade test restores full brightness, enables a confirmed profile only on that Mac, and submits an anonymous Yes/No result for owner review.]]></description>
       <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.3.2.dmg" sparkle:edSignature="TJRcSUj6hto4tB30OhB1sckjHwdA7iLWXrEArFOKbm0DwLBCIr5UrEmZfavhs6DyIN6swmGU2/eL53CgdxM1DA==" length="5892472" type="application/octet-stream" />
     </item>
+    <item>
+      <title>Version 0.3.3</title>
+      <sparkle:version>0.3.3</sparkle:version>
+      <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 27 Aug 2026 09:18:12 +0000</pubDate>
+      <description><![CDATA[Add safe first-launch hardware validation for the 2026 Mac Studio with M5 Max and M5 Ultra. Candidate profiles stay local to the confirmed machine until physical validation is reviewed.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.3.3.dmg" sparkle:edSignature="o6gZg63VSbUF8QGxjiWmZmThpc+SRKvt8wnjbwQlUuB8on4p98S3SPXg5Wi2D5A2brSPX4s0cblpsWPznqn+Dg==" length="5892732" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
