@@ -5,83 +5,81 @@
 **Turn off, dim, or schedule the front LED on your Mac.**
 Source-available (Fair Source) · lightweight menu-bar app · set-and-forget.
 
-[Install](#install) · [How it works](#how-it-works) · [Why is it unsigned?](#why-is-it-unsigned) · [Donate](#support)
+[Install](#install) · [How it works](#how-it-works) · [Privacy](#privacy) · [Support](#support)
 
 </div>
 
 ---
 
 The Mac mini's (and Studio's) front power LED is **bright**, always on, and macOS gives
-you **no way to turn it off** — people resort to a piece of tape. LuxMini fixes that in
+you **no way to turn it off**. People resort to a piece of tape. LuxMini fixes that in
 software: switch it **off**, **dim** it, or have it **auto-dim at night / after sunset**.
 
 > **Is this even real?** Yes. macOS doesn't expose the front LED, but it's driven by the
-> Mac's **SMC** (System Management Controller) — the same chip that runs the fans and
-> sensors. LuxMini writes to it through a tiny privileged helper. The source is right here
-> so you can check for yourself.
+> Mac's **SMC** (System Management Controller), the same chip that runs the fans and
+> sensors. LuxMini writes to it through a tiny privileged helper. The
+> [client source](https://github.com/bastiencantet/luxmini-public) is public so
+> you can inspect how the app, helper, profile validation, and local API work.
 
 ## Features
 
 - **Off / On** and **brightness** for the front LED.
-- **Auto-dim** *(in progress)* — lower it at night or after sunset, set-and-forget.
-- **Multi-model** — Mac mini (Intel, T2, Apple Silicon) and community-tested Mac
-  Studio, with a safe visual onboarding that can validate a pending new model
-  on real hardware through per-model device profiles.
-- Menu-bar app, discreet, launches at login, auto-updates.
-- **Fun stuff** *(optional, tucked away)* — blink / pulse / SOS. Most people don't want
+- **Auto-dim**: lower the LED at a chosen time or turn it off after sunset.
+- **Three presets**: restore a saved power, brightness, and effect state.
+- **Multi-model**: Mac mini and community-tested Mac Studio profiles, with a
+  reversible visual test for recognised hardware awaiting physical validation.
+- **Local control API**: optional, off by default, and bound to localhost only.
+- Menu-bar app, discreet, launches at login, and checks for updates with Sparkle.
+- **Fun stuff** *(optional, tucked away)*: blink / pulse / SOS. Most people don't want
   these on a status light; they live in their own submenu.
 
 ## Install
 
-LuxMini is **not notarized yet** (that needs a paid Apple Developer account — see
-[below](#why-is-it-unsigned) and [Support](#support)). Pick whichever you trust most:
+Download the latest DMG from the
+[LuxMini website](https://luxmini.bastiencantet.com/download) or the
+[public releases page](https://github.com/bastiencantet/luxmini-public/releases).
+Each GitHub release includes a SHA-256 checksum.
 
-**Build it yourself** *(most trustworthy — you compile the exact source):*
+1. Open the DMG and drag `LuxMini.app` into Applications.
+2. Launch LuxMini. Current builds are ad-hoc signed but not notarized, so macOS
+   may block the first launch.
+3. Open **System Settings > Privacy & Security**, find the LuxMini message, and
+   choose **Open Anyway**.
+4. Approve the standard administrator prompt once so the bundled helper can
+   control the front LED.
+
+Do not use `xattr` workarounds. The Privacy & Security flow keeps macOS
+quarantine protections in place while approving this exact app.
+
+You can also build the public client source yourself:
+
 ```sh
 git clone https://github.com/bastiencantet/luxmini-public
 cd luxmini-public
-make run          # builds + runs; first launch asks once to install the helper
-```
-Requires Rust (`rustup`) and Xcode command-line tools.
-
-**Homebrew** *(coming):*
-```sh
-brew install bastiencantet/tap/luxmini    # build-from-source formula (no Gatekeeper prompt)
+make run
 ```
 
-**Download the .app/.dmg** from [Releases](https://github.com/bastiencantet/luxmini-public/releases):
-because it's unsigned, first launch needs one manual step — see below.
-
-## Why is it unsigned?
-
-Apple's notarization requires a **$99/year Developer Program** membership I don't have yet.
-That's the *only* reason for the "unidentified developer" warning — **not** anything shady:
-the full source is in this repo, and you can build it yourself.
-
-To run an unsigned app the first time:
-- **Right-click** the app → **Open** → **Open** (only needed once), or
-- in Terminal: `xattr -d com.apple.quarantine /Applications/LuxMini.app`
-
-Every release ships with **SHA-256 checksums**. Want notarized builds? See [Support](#support) —
-it's the first thing community funding will pay for.
+Building requires Rust through `rustup` and the Xcode command-line tools. The
+model-specific SMC profile data is delivered by the private profile service and
+is intentionally not published in the client repository.
 
 ## How it works
 
 The front LED is a PWM channel on the Mac's **SMC**. LuxMini:
-1. runs a small **setuid-root helper** (`led-helper`) that talks to `AppleSMC` via IOKit —
+1. runs a small **setuid-root helper** (`led-helper`) that talks to `AppleSMC` via IOKit,
    the only privileged part, kept minimal and auditable;
 2. loads a **device profile** that says *how* to address the LED on your specific Mac model
    (the addressing differs across Intel / T2 / Apple Silicon / Studio);
 3. writes the brightness; the app itself stays unprivileged.
 
-The per-model addressing — *which* SMC channel each model uses — lives in a **device profile**
+The per-model addressing, meaning which SMC channel each model uses, lives in a **device profile**
 loaded at runtime rather than hardcoded, so the app stays clean and supports a new model by
 shipping a profile instead of a new build.
 
 ## Local control API
 
-LuxMini can expose a tiny **local HTTP API** so other tools — Apple Shortcuts,
-`AppleScript`, Home Assistant, shell scripts — can read and drive the LED. It is
+LuxMini can expose a tiny **local HTTP API** so Apple Shortcuts,
+`AppleScript`, Home Assistant, and shell scripts can read and drive the LED. It is
 **off by default**, **binds `127.0.0.1` only** (never the network), and there is
 no cloud or account involved. Turn it on in **Settings › General → “Enable local
 control API”**; optionally set a bearer token (`api.token`).
@@ -90,9 +88,9 @@ Endpoints (default port `4470`):
 
 | Method & path | Body | Result |
 |---|---|---|
-| `GET /led` | — | `{ "on": bool, "brightness": 0-255, "max": 255 }` |
+| `GET /led` | None | `{ "on": bool, "brightness": 0-255, "max": 255 }` |
 | `POST /led` | `{ "on": bool }` / `{ "brightness": 0-255 }` / `{ "effect": "blink\|blinkfast\|pulse\|sos\|strobe\|none" }` | applies it, returns the new state |
-| `GET /healthz` | — | `{ "status": "ok" }` |
+| `GET /healthz` | None | `{ "status": "ok" }` |
 
 The bundled **`luxmini` CLI** wraps it:
 
@@ -116,27 +114,36 @@ Ready-to-use recipes for Home Assistant, AppleScript, and the shell are in
 
 ## Privacy
 
-No tracking, no analytics. Network calls are limited to checking for updates,
-fetching the profile matching your Mac model, and—only after an explicit pending
-hardware test—sending the model plus a `yes`, `no`, or `technical_error` result.
-No serial number or installation ID is sent. Validated profiles are cached locally
-in `~/Library/Application Support/LuxMini/profile`.
+LuxMini has no account, advertising SDK, or cross-app tracking. The client does
+not generate or send a serial number or installation identifier.
+
+Network calls are limited to update checks, requesting the profile matching the
+Mac model, and submitting a `yes`, `no`, or `technical_error` result after an
+explicit pending-hardware test. The profile service can aggregate profile
+requests by model and validation outcomes. The matching profile is cached in
+`~/Library/Application Support/LuxMini/profile`.
+
+LED control, schedules, presets, support-reminder choices, and the optional
+localhost API stay on the Mac.
 
 ## Support
 
 LuxMini is free and its source is open to read, build, and audit. If it saved you a piece of tape:
 - ⭐ Star the repo
-- ☕ [Sponsor / donate](https://github.com/sponsors/bastiencantet) — **first goal: the $99
-  Apple Developer account so builds get notarized** (no more Gatekeeper warning for everyone).
+- ☕ [Support development](https://www.buymeacoffee.com/bastiencantet). Donations
+  help fund Apple signing and notarization, profile hosting, and physical testing
+  on new Mac hardware.
 
 ## Contributing
 
-Issues and PRs welcome — especially **device profiles for more Mac models** (if your Mac's
-LED isn't supported, open an issue with your model identifier).
+Issues and PRs are welcome in the
+[public client repository](https://github.com/bastiencantet/luxmini-public),
+especially compatibility reports for new Mac models. Never post an SMC key,
+serial number, or another device identifier.
 
 ## License
 
-[FSL-1.1-Apache-2.0](LICENSE) © Bastien Cantet — **Functional Source License**
+[FSL-1.1-Apache-2.0](LICENSE) © Bastien Cantet. **Functional Source License**
 ([fair.io](https://fair.io)): the source is open to read, build, modify, and use
 for any purpose **except** building a competing product or reselling it. Each
 release automatically converts to **Apache 2.0** two years after it ships, so the
