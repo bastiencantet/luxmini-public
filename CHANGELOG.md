@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Optional anonymous product diagnostics, disabled by default, for aggregate
+  first-launch, profile-resolution, helper-install, LED-activation, retention,
+  and support-prompt outcomes. No installation identifier is created or sent.
+- Device-profile caches are now bound to the exact Mac hardware model. Legacy
+  unbound caches are ignored and fetched again to prevent cross-Mac reuse.
+- A privacy-preserving support prompt that appears only after seven days and
+  twenty meaningful menu sessions, offers a permanent opt-out, and can remind
+  at most once more after ninety days. A permanent Support LuxMini action is
+  also available from the menu and Settings.
+
 ## [0.3.3] - 2026-08-27
 
 ### Added
@@ -80,9 +92,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Effects submenu (blink / pulse / SOS / strobe), launch-at-login, and Sparkle
   auto-updates.
 
-[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.3...HEAD
-[0.3.3]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.2...v0.3.3
-[0.3.2]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.1...v0.3.2
-[0.3.1]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/bastiencantet/luxmini-public/compare/v0.2.2...v0.3.0
-[0.2.2]: https://github.com/bastiencantet/luxmini-public/releases/tag/v0.2.2
+[Unreleased]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/bastiencantet/mac-led-tray/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/bastiencantet/mac-led-tray/releases/tag/v0.2.2

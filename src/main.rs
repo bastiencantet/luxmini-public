@@ -15,6 +15,7 @@ mod profile;
 mod schedule;
 mod sparkle;
 mod sun;
+mod telemetry;
 mod ui;
 
 use objc2::MainThreadMarker;
@@ -32,6 +33,7 @@ fn main() {
 
     let model = compat::get_mac_model();
     eprintln!("detected Mac model: {model}");
+    telemetry::note_launch(&model);
     let initial_state = if compat::is_pending(&model) {
         if preferences::profile_validated_for(&model)
             && profile::DeviceProfile::load_cached().is_some()

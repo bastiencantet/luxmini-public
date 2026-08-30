@@ -132,7 +132,7 @@ pub fn run(mtm: MainThreadMarker, model: &str) -> Option<LedState> {
         let _ = DeviceProfile::report_validation(model, "no");
         return None;
     }
-    if let Err(error) = profile.cache_validated() {
+    if let Err(error) = profile.cache_validated(model) {
         eprintln!("cannot cache validated candidate profile: {error}");
         let _ = DeviceProfile::report_validation(model, "technical_error");
         return None;

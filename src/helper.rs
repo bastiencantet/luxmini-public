@@ -76,7 +76,24 @@ impl Helper {
 
         if !is_setuid_root(&helper_path) {
             eprintln!("helper is not setuid root, asking for admin...");
-            elevate_helper(&helper_path)?;
+            if let Err(error) = elevate_helper(&helper_path) {
+                let outcome = if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    "cancelled"
+                } else {
+                    "error"
+                };
+                crate::telemetry::emit_once(
+                    "helper_install_result",
+                    outcome,
+                    &crate::compat::get_mac_model(),
+                );
+                return Err(error);
+            }
+            crate::telemetry::emit_once(
+                "helper_install_result",
+                "success",
+                &crate::compat::get_mac_model(),
+            );
         }
 
         let mut child = Command::new(&helper_path)
@@ -145,8 +162,18 @@ impl Helper {
         self.send(&cmd)?;
         let resp = self.recv()?;
         if resp.starts_with("OK") {
+            crate::telemetry::emit_once(
+                "led_activation_result",
+                "success",
+                &crate::compat::get_mac_model(),
+            );
             Ok(())
         } else {
+            crate::telemetry::emit_once(
+                "led_activation_result",
+                "error",
+                &crate::compat::get_mac_model(),
+            );
             Err(std::io::Error::other(resp))
         }
     }

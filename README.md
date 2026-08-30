@@ -123,6 +123,11 @@ explicit pending-hardware test. The profile service can aggregate profile
 requests by model and validation outcomes. The matching profile is cached in
 `~/Library/Application Support/LuxMini/profile`.
 
+Anonymous product diagnostics are optional and disabled by default. If enabled
+in Settings, LuxMini sends only a closed event name, its outcome, the Mac model,
+and the macOS major version. It does not create or send an installation ID, and
+the server stores aggregate counters rather than per-device event histories.
+
 LED control, schedules, presets, support-reminder choices, and the optional
 localhost API stay on the Mac.
 

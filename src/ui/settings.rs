@@ -30,6 +30,7 @@ pub struct SettingsRefs {
     pub login: Retained<NSButton>,
     pub hide: Retained<NSButton>,
     pub api: Retained<NSButton>,
+    pub diagnostics: Retained<NSButton>,
     pub save: Retained<NSButton>,
     pub sections: Vec<Retained<NSView>>,
     /// Sidebar cell views, returned to the source-list table by `viewForTableColumn:row:`.
@@ -442,12 +443,29 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         ),
         prect(150.0, 32.0, 34.0, 372.0),
     ));
+    let diagnostics = checkbox(
+        mtm,
+        i18n::s(
+            "Share anonymous diagnostics (optional, off by default)",
+            "Partager des diagnostics anonymes (facultatif, désactivé par défaut)",
+        ),
+        prect(226.0, 22.0, 16.0, 396.0),
+    );
+    p_gen.addSubview(&diagnostics);
+    p_gen.addSubview(&hint(
+        mtm,
+        i18n::s(
+            "Sends aggregate milestones, Mac model, and macOS major version. No serial number or installation ID.",
+            "Envoie des étapes agrégées, le modèle du Mac et la version majeure de macOS. Aucun numéro de série ni identifiant d'installation.",
+        ),
+        prect(248.0, 32.0, 34.0, 372.0),
+    ));
     p_gen.addSubview(&push_button(
         mtm,
         handler,
         i18n::s("API docs\u{2026}", "Doc de l'API\u{2026}"),
         sel!(openApiDocs:),
-        prect(188.0, 28.0, 34.0, 150.0),
+        prect(286.0, 28.0, 34.0, 150.0),
     ));
 
     // ── Pane 4: About ───────────────────────────────────────────────────
@@ -490,10 +508,17 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         sel!(sendFeedback:),
         prect(150.0, 30.0, 16.0, 220.0),
     ));
+    p_about.addSubview(&push_button(
+        mtm,
+        handler,
+        i18n::s("Support LuxMini\u{2026}", "Soutenir LuxMini\u{2026}"),
+        sel!(supportLuxMini:),
+        prect(188.0, 30.0, 16.0, 220.0),
+    ));
     p_about.addSubview(&hint(
         mtm,
         "Made with ❤️ by Bastien CANTET",
-        prect(196.0, 16.0, 16.0, 396.0),
+        prect(234.0, 16.0, 16.0, 396.0),
     ));
 
     // Global Save button (shown only on the form sections).
@@ -522,6 +547,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         login,
         hide,
         api,
+        diagnostics,
         save,
         sections,
         row_views,
@@ -585,6 +611,7 @@ fn populate(handler: &Handler) {
     set_state(&r.login, launch_at_login::is_enabled());
     set_state(&r.hide, preferences::load_hide_icon());
     set_state(&r.api, preferences::api_enabled());
+    set_state(&r.diagnostics, preferences::diagnostics_enabled());
 }
 
 /// Re-fill just the latitude/longitude fields from the saved location (called
@@ -649,6 +676,13 @@ pub fn save(handler: &Handler) {
         crate::api::maybe_start();
     } else if !api_now_on && api_was_on {
         crate::api::stop();
+    }
+
+    let diagnostics_was_on = preferences::diagnostics_enabled();
+    let diagnostics_now_on = is_on(&r.diagnostics);
+    preferences::save_diagnostics_enabled(diagnostics_now_on);
+    if diagnostics_now_on && !diagnostics_was_on {
+        crate::telemetry::note_launch(&compat::get_mac_model());
     }
 
     schedule::restart();

@@ -9,10 +9,15 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSApplication, NSMenuItem, NSSlider, NSStatusItem, NSSwitch, NSTextField, NSView,
+    NSAlert, NSApplication, NSMenuItem, NSSlider, NSStatusItem, NSSwitch, NSTextField, NSView,
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const FIRST_ALERT_BUTTON: isize = 1000;
+const THIRD_ALERT_BUTTON: isize = 1002;
+const SUPPORT_URL: &str = "https://www.buymeacoffee.com/bastiencantet";
 
 pub struct UiRefs {
     pub status_item: Retained<NSStatusItem>,
@@ -31,6 +36,9 @@ pub struct HandlerIvars {
     pub settings: RefCell<Option<SettingsRefs>>,
     /// The in-flight `CLLocationManager`, kept alive for the async request.
     pub location_manager: RefCell<Option<Retained<NSObject>>>,
+    /// Coalesces all changes made while one menu session is open into one
+    /// meaningful action for the support-prompt policy.
+    pub menu_had_manual_action: Cell<bool>,
 }
 
 define_class!(
@@ -49,6 +57,7 @@ define_class!(
             let on = state != 0;
             schedule::note_manual_override(); // don't let auto-dim fight a manual change
             with_state(|s| s.set_on(on));
+            self.note_meaningful_action();
             self.refresh_ui();
         }
 
@@ -62,6 +71,7 @@ define_class!(
             let byte = value.clamp(0.0, 255.0).round() as u8;
             schedule::note_manual_override(); // don't let auto-dim fight a manual change
             with_state(|s| s.set_brightness(byte));
+            self.note_meaningful_action();
             self.refresh_ui();
         }
 
@@ -69,6 +79,7 @@ define_class!(
         fn effect_none(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(LedState::clear_effect);
+            self.note_meaningful_action();
             self.refresh_ui();
         }
 
@@ -76,30 +87,35 @@ define_class!(
         fn effect_blink(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Blink));
+            self.note_meaningful_action();
         }
 
         #[unsafe(method(effectBlinkFast:))]
         fn effect_blink_fast(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::BlinkFast));
+            self.note_meaningful_action();
         }
 
         #[unsafe(method(effectPulse:))]
         fn effect_pulse(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Pulse));
+            self.note_meaningful_action();
         }
 
         #[unsafe(method(effectSos:))]
         fn effect_sos(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Sos));
+            self.note_meaningful_action();
         }
 
         #[unsafe(method(effectStrobe:))]
         fn effect_strobe(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Strobe));
+            self.note_meaningful_action();
         }
 
         #[unsafe(method(toggleAutoDimSunset:))]
@@ -109,6 +125,7 @@ define_class!(
             d.enabled = d.off_at_sunset || d.dim_at_time;
             preferences::save_autodim(&d);
             schedule::restart();
+            self.note_meaningful_action();
             self.sync_autodim_menu();
         }
 
@@ -119,6 +136,7 @@ define_class!(
             d.enabled = d.off_at_sunset || d.dim_at_time;
             preferences::save_autodim(&d);
             schedule::restart();
+            self.note_meaningful_action();
             self.sync_autodim_menu();
         }
 
@@ -135,6 +153,7 @@ define_class!(
             };
             preferences::save_autodim(&d);
             schedule::stop(); // LED left as-is — no surprise jump
+            self.note_meaningful_action();
             self.sync_autodim_menu();
         }
 
@@ -150,6 +169,16 @@ define_class!(
         fn menu_will_open(&self, _menu: &AnyObject) {
             self.refresh_ui();
             self.sync_autodim_menu();
+        }
+
+        // NSMenuDelegate: evaluate the support prompt only after the menu has
+        // closed, so it never interrupts an LED adjustment.
+        #[unsafe(method(menuDidClose:))]
+        fn menu_did_close(&self, _menu: &AnyObject) {
+            if self.ivars().menu_had_manual_action.replace(false) {
+                preferences::record_meaningful_action(unix_timestamp());
+                Self::maybe_show_support_prompt();
+            }
         }
 
         #[unsafe(method(loadPreset1:))]
@@ -197,6 +226,19 @@ define_class!(
         #[unsafe(method(sendFeedback:))]
         fn send_feedback(&self, _sender: &AnyObject) {
             open_feedback();
+        }
+
+        #[unsafe(method(supportLuxMini:))]
+        fn support_luxmini(&self, _sender: &AnyObject) {
+            // An explicit support click is stronger intent than an automatic
+            // reminder; never follow it with a prompt when the menu closes.
+            preferences::suppress_support_prompts();
+            crate::telemetry::emit(
+                "support_prompt_result",
+                "support",
+                &crate::compat::get_mac_model(),
+            );
+            open_url(SUPPORT_URL);
         }
 
         #[unsafe(method(openApiDocs:))]
@@ -314,6 +356,7 @@ impl Handler {
             ui: RefCell::new(None),
             settings: RefCell::new(None),
             location_manager: RefCell::new(None),
+            menu_had_manual_action: Cell::new(false),
         });
         // SAFETY: forwarding -init to the NSObject superclass on a freshly allocated instance.
         unsafe { msg_send![super(this), init] }
@@ -363,10 +406,78 @@ impl Handler {
         update_tray_icon(&ui.status_item, is_on, brightness);
     }
 
+    fn note_meaningful_action(&self) {
+        self.ivars().menu_had_manual_action.set(true);
+    }
+
+    fn maybe_show_support_prompt() {
+        let now = unix_timestamp();
+        if !preferences::support_prompt_due(now) {
+            return;
+        }
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(true);
+
+        let alert = NSAlert::new(mtm);
+        alert.setMessageText(&NSString::from_str(crate::i18n::s(
+            "Enjoying LuxMini?",
+            "LuxMini vous est utile ?",
+        )));
+        alert.setInformativeText(&NSString::from_str(crate::i18n::s(
+            "LuxMini is free. Your support helps cover Apple signing and notarization, profile hosting, and validation on new Mac hardware.",
+            "LuxMini est gratuit. Votre soutien aide à financer la signature et la notarisation Apple, l’hébergement des profils et la validation des nouveaux Mac.",
+        )));
+        alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s(
+            "Support LuxMini",
+            "Soutenir LuxMini",
+        )));
+        alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s(
+            "Maybe Later",
+            "Plus tard",
+        )));
+        alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s(
+            "Don't Ask Again",
+            "Ne plus demander",
+        )));
+
+        match alert.runModal() {
+            FIRST_ALERT_BUTTON => {
+                preferences::suppress_support_prompts();
+                crate::telemetry::emit(
+                    "support_prompt_result",
+                    "support",
+                    &crate::compat::get_mac_model(),
+                );
+                open_url(SUPPORT_URL);
+            }
+            THIRD_ALERT_BUTTON => {
+                preferences::suppress_support_prompts();
+                crate::telemetry::emit(
+                    "support_prompt_result",
+                    "never",
+                    &crate::compat::get_mac_model(),
+                );
+            }
+            _ => {
+                preferences::defer_support_prompt(now);
+                crate::telemetry::emit(
+                    "support_prompt_result",
+                    "later",
+                    &crate::compat::get_mac_model(),
+                );
+            }
+        }
+    }
+
     fn load_preset(&self, slot: u8) {
         if let Some(p) = preferences::load_preset(slot) {
             schedule::note_manual_override();
             with_state(|s| s.apply_preset(&p));
+            self.note_meaningful_action();
             self.refresh_ui();
         }
     }
@@ -419,6 +530,14 @@ impl Handler {
             let _: () = msg_send![&ui.autodim_dim_item, setState: dim_state];
         }
     }
+}
+
+fn unix_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .unwrap_or(0)
 }
 
 /// Build the Auto-dim status-line text from the active rules.

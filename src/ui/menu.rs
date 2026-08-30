@@ -350,6 +350,12 @@ pub fn build_app(mtm: MainThreadMarker) -> App {
         i18n::s("Send Feedback\u{2026}", "Envoyer un retour\u{2026}"),
         sel!(sendFeedback:),
     ));
+    menu.addItem(&make_action(
+        mtm,
+        &handler,
+        i18n::s("Support LuxMini\u{2026}", "Soutenir LuxMini\u{2026}"),
+        sel!(supportLuxMini:),
+    ));
     let launch_at_login_item = make_action(
         mtm,
         &handler,

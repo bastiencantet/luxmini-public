@@ -8,6 +8,11 @@ use objc2_foundation::NSString;
 use crate::led::Effect;
 use crate::schedule::{AutoDim, Location};
 
+const SUPPORT_MIN_AGE_SECONDS: i64 = 7 * 24 * 60 * 60;
+const SUPPORT_REMINDER_SECONDS: i64 = 90 * 24 * 60 * 60;
+const SUPPORT_MIN_ACTIONS: i64 = 20;
+const SUPPORT_MAX_PROMPTS: i64 = 2;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Preset {
     pub brightness: u8,
@@ -148,6 +153,81 @@ pub fn api_enabled() -> bool {
 
 pub fn save_api_enabled(enabled: bool) {
     set_bool("api.enabled", enabled);
+}
+
+/// Anonymous aggregate diagnostics are explicitly opt-in and disabled until
+/// the user enables the checkbox in Settings.
+pub fn diagnostics_enabled() -> bool {
+    get_bool("diagnostics.enabled")
+}
+
+pub fn save_diagnostics_enabled(enabled: bool) {
+    set_bool("diagnostics.enabled", enabled);
+}
+
+pub fn ensure_telemetry_first_seen(now: i64) {
+    if get_int("diagnostics.first_seen_at") == 0 {
+        set_int("diagnostics.first_seen_at", now);
+    }
+}
+
+pub fn telemetry_first_seen_at() -> i64 {
+    get_int("diagnostics.first_seen_at")
+}
+
+pub fn telemetry_event_sent(event: &str) -> bool {
+    get_bool(&format!("diagnostics.sent.{event}"))
+}
+
+pub fn mark_telemetry_event_sent(event: &str) {
+    set_bool(&format!("diagnostics.sent.{event}"), true);
+}
+
+/// Record one menu session in which the user changed the LED or its automation.
+/// Slider movement is deliberately coalesced by the UI into a single action.
+pub fn record_meaningful_action(now: i64) {
+    ensure_support_first_seen(now);
+    let actions = get_int("support.meaningful_actions").saturating_add(1);
+    set_int("support.meaningful_actions", actions);
+}
+
+/// Return whether the gentle support prompt is eligible to be shown.
+///
+/// Existing users start their seven-day grace period when this feature first
+/// ships, which prevents an immediate prompt after updating `LuxMini`.
+pub fn support_prompt_due(now: i64) -> bool {
+    ensure_support_first_seen(now);
+    if get_bool("support.opted_out")
+        || get_int("support.prompt_count") >= SUPPORT_MAX_PROMPTS
+        || get_int("support.meaningful_actions") < SUPPORT_MIN_ACTIONS
+    {
+        return false;
+    }
+    let first_seen = get_int("support.first_seen_at");
+    let next_prompt = get_int("support.next_prompt_at");
+    now >= first_seen.saturating_add(SUPPORT_MIN_AGE_SECONDS) && now >= next_prompt
+}
+
+/// Record a dismissed prompt and schedule the final possible reminder.
+pub fn defer_support_prompt(now: i64) {
+    let count = get_int("support.prompt_count").saturating_add(1);
+    set_int("support.prompt_count", count);
+    set_int(
+        "support.next_prompt_at",
+        now.saturating_add(SUPPORT_REMINDER_SECONDS),
+    );
+}
+
+/// Permanently suppress automatic support prompts. The permanent Support menu
+/// item remains available.
+pub fn suppress_support_prompts() {
+    set_bool("support.opted_out", true);
+}
+
+fn ensure_support_first_seen(now: i64) {
+    if get_int("support.first_seen_at") == 0 {
+        set_int("support.first_seen_at", now);
+    }
 }
 
 /// Port for the local API. Defaults to 4470 when unset or out of range.

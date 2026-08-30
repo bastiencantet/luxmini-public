@@ -6,9 +6,9 @@
 //! `LuxMini` API, validated, and cached locally. No profile catalog or shared
 //! credential is baked into the executable.
 //!
-//! Profile file (plain text, one active line `KEY FORMAT MAX`):
+//! Profile file (plain text, a model binding and one active `KEY FORMAT MAX` line):
 //!   ~/Library/Application Support/LuxMini/profile
-//! e.g.   `XXXX vv 255`     (vv = write [v,v];  v0 = write [v,0])
+//! e.g.   `# model Mac16,9` then `XXXX vv 255`
 //! See `profile.example` in the repo for the format (no real key shipped).
 
 use serde::{Deserialize, Serialize};
@@ -68,20 +68,36 @@ fn profile_path() -> Option<PathBuf> {
 impl DeviceProfile {
     /// Load a cached profile or fetch and cache the profile matching this Mac.
     pub fn load() -> Option<Self> {
+        let model = crate::compat::get_mac_model();
         let path = profile_path()?;
-        if let Some(profile) = Self::load_file(&path) {
+        if let Some(profile) = Self::load_file(&path, &model) {
+            crate::telemetry::emit("profile_resolution", "cache", &model);
             return Some(profile);
         }
-        let model = crate::compat::get_mac_model();
-        let profile = Self::fetch(&model)?;
-        if let Err(error) = profile.cache(&path) {
+        let Some(profile) = Self::fetch(&model) else {
+            crate::telemetry::emit("profile_resolution", "error", &model);
+            return None;
+        };
+        crate::telemetry::emit("profile_resolution", "remote", &model);
+        if let Err(error) = profile.cache(&path, &model) {
             eprintln!("cannot cache device profile: {error}");
         }
         Some(profile)
     }
 
-    fn load_file(path: &Path) -> Option<Self> {
+    fn load_file(path: &Path, expected_model: &str) -> Option<Self> {
         let text = std::fs::read_to_string(path).ok()?;
+        Self::parse_cached(&text, expected_model)
+    }
+
+    fn parse_cached(text: &str, expected_model: &str) -> Option<Self> {
+        let cached_model = text
+            .lines()
+            .map(str::trim)
+            .find_map(|line| line.strip_prefix("# model "))?;
+        if cached_model != expected_model {
+            return None;
+        }
         let line = text
             .lines()
             .map(str::trim)
@@ -133,15 +149,16 @@ impl DeviceProfile {
 
     /// Return a locally cached profile without contacting the API.
     pub fn load_cached() -> Option<Self> {
-        Self::load_file(&profile_path()?)
+        let model = crate::compat::get_mac_model();
+        Self::load_file(&profile_path()?, &model)
     }
 
     /// Cache a candidate only after the user has visually confirmed the fade.
-    pub fn cache_validated(&self) -> std::io::Result<()> {
+    pub fn cache_validated(&self, model: &str) -> std::io::Result<()> {
         let path = profile_path().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "home directory unavailable")
         })?;
-        self.cache(&path)
+        self.cache(&path, model)
     }
 
     /// Send an anonymous validation outcome. This is best-effort and contains
@@ -175,7 +192,7 @@ impl DeviceProfile {
         Self::parse_line(&line)
     }
 
-    fn cache(&self, path: &Path) -> std::io::Result<()> {
+    fn cache(&self, path: &Path, model: &str) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -186,6 +203,7 @@ impl DeviceProfile {
             .truncate(true)
             .mode(0o600)
             .open(path)?;
+        writeln!(file, "# model {model}")?;
         writeln!(file, "{} {format} {}", self.key, self.max)
     }
 
@@ -348,5 +366,13 @@ mod tests {
             max: 255,
         };
         assert!(DeviceProfile::from_response(&mismatched, "Mac16,9").is_none());
+    }
+
+    #[test]
+    fn cached_profile_is_bound_to_the_exact_mac_model() {
+        let cached = "# model Mac16,9\nABCD vv 255\n";
+        assert!(DeviceProfile::parse_cached(cached, "Mac16,9").is_some());
+        assert!(DeviceProfile::parse_cached(cached, "Mac14,3").is_none());
+        assert!(DeviceProfile::parse_cached("ABCD vv 255\n", "Mac16,9").is_none());
     }
 }
