@@ -59,5 +59,14 @@
       <description><![CDATA[Add safe first-launch hardware validation for the 2026 Mac Studio with M5 Max and M5 Ultra. Candidate profiles stay local to the confirmed machine until physical validation is reviewed.]]></description>
       <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.3.3.dmg" sparkle:edSignature="o6gZg63VSbUF8QGxjiWmZmThpc+SRKvt8wnjbwQlUuB8on4p98S3SPXg5Wi2D5A2brSPX4s0cblpsWPznqn+Dg==" length="5892732" type="application/octet-stream" />
     </item>
+    <item>
+      <title>Version 0.4.0</title>
+      <sparkle:version>0.4.0</sparkle:version>
+      <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 30 Aug 2026 21:11:07 +0000</pubDate>
+      <description><![CDATA[Apple-signed and notarized release with optional anonymous diagnostics disabled by default, exact-model profile caching, and a privacy-preserving support prompt.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.4.0.dmg" sparkle:edSignature="/186S/pe0TiSzDZeClmkUIZQk0jDFrzho2A8Ys3hFqhbIaDXNVRHJth19lQ1qMcxApJEHCXinagxjiFdhc+7Ag==" length="5984758" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
