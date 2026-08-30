@@ -1,9 +1,7 @@
-# Draft Homebrew cask — goes in a tap repo `bastiencantet/homebrew-tap`
-# (`Casks/luxmini.rb`). Until builds are notarized, prefer `make run`
-# (build-from-source = no Gatekeeper). Fill in version + sha256 per release.
+# Draft Homebrew cask for a future `bastiencantet/homebrew-tap` repository.
 cask "luxmini" do
-  version "0.3.0"
-  sha256 "REPLACE_WITH_RELEASE_DMG_SHA256"
+  version "0.4.0"
+  sha256 "dd2a3cc919820d88ccc5abfc9047db9422c75844584e4883b4d1ce1a07d4ced3"
 
   url "https://github.com/bastiencantet/luxmini-public/releases/download/v#{version}/LuxMini-#{version}.dmg"
   name "LuxMini"
@@ -11,10 +9,4 @@ cask "luxmini" do
   homepage "https://luxmini.bastiencantet.com"
 
   app "LuxMini.app"
-
-  caveats <<~EOS
-    LuxMini is not notarized yet. On first launch:
-      right-click LuxMini.app → Open → Open
-    or:  xattr -d com.apple.quarantine "#{appdir}/LuxMini.app"
-  EOS
 end

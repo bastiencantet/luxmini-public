@@ -1,4 +1,4 @@
-.PHONY: help build run setup app dmg release lint test clean
+.PHONY: help build run setup app dmg notarize release lint test clean
 .DEFAULT_GOAL := help
 
 HELPER = target/release/led-helper
@@ -31,6 +31,9 @@ app: ## Build the LuxMini.app bundle under dist/
 # Override version via `make dmg VERSION=0.1.2`; otherwise it reads Cargo.toml.
 dmg: ## Build the app and package it as dist/LuxMini-<version>.dmg
 	VERSION=$(VERSION) ./scripts/dmg.sh
+
+notarize: ## Submit an existing signed DMG to Apple and staple its ticket
+	./scripts/notarize.sh "dist/LuxMini-$(VERSION).dmg"
 
 # Usage: make release VERSION=0.2.3 NOTES="Fix slider padding"
 release: ## Cut a signed release (dmg + appcast + upload)

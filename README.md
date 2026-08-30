@@ -41,15 +41,10 @@ Download the latest DMG from the
 Each GitHub release includes a SHA-256 checksum.
 
 1. Open the DMG and drag `LuxMini.app` into Applications.
-2. Launch LuxMini. Current builds are ad-hoc signed but not notarized, so macOS
-   may block the first launch.
-3. Open **System Settings > Privacy & Security**, find the LuxMini message, and
-   choose **Open Anyway**.
-4. Approve the standard administrator prompt once so the bundled helper can
+2. Launch LuxMini normally. Release builds are signed with Developer ID and
+   notarized by Apple.
+3. Approve the standard administrator prompt once so the bundled helper can
    control the front LED.
-
-Do not use `xattr` workarounds. The Privacy & Security flow keeps macOS
-quarantine protections in place while approving this exact app.
 
 You can also build the public client source yourself:
 

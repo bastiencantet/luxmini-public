@@ -1,9 +1,10 @@
 #!/bin/bash
 # Release flow (Vercel Blob distribution):
-#   1. Build LuxMini-$VERSION.dmg (universal binary, ad-hoc signed)
-#   2. Sign the dmg with Sparkle's EdDSA private key from Keychain
-#   3. Prepend a new <item> to appcast.xml
-#   4. Upload both appcast.xml and the dmg to Vercel Blob
+#   1. Build LuxMini-$VERSION.dmg with Developer ID and hardened runtime
+#   2. Submit the dmg to Apple, staple its notarization ticket, and verify it
+#   3. Sign the dmg with Sparkle's EdDSA private key from Keychain
+#   4. Prepend a new <item> to appcast.xml
+#   5. Upload both appcast.xml and the dmg to Vercel Blob
 #      (via the web repo's `npm run upload-blob` helper)
 #
 # Usage:  ./scripts/release.sh <version> <release-notes>
@@ -21,9 +22,14 @@ VERSION="${1:-}"
 NOTES="${2:-Minor update.}"
 WEB_DIR="${LUXMINI_WEB_DIR:-${ROOT}/../luxmini-web}"
 BLOB_BASE="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 
 if [[ -z "$VERSION" ]]; then
     echo "usage: $0 <version> <release-notes>" >&2
+    exit 1
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+    echo "ERROR: SIGNING_IDENTITY must name a Developer ID Application identity" >&2
     exit 1
 fi
 # Catch a forgotten Cargo.toml bump: the bundle's Info.plist version comes from
@@ -49,6 +55,9 @@ if [[ ! -f "$DMG" ]]; then
     echo "ERROR: dmg not produced at ${DMG}" >&2
     exit 1
 fi
+
+echo "==> Notarizing ${DMG}"
+./scripts/notarize.sh "$DMG"
 
 echo "==> Signing ${DMG} with EdDSA key from Keychain"
 if [[ ! -x ./vendor/bin/sign_update ]]; then

@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-30
+
 ### Added
 
 - Optional anonymous product diagnostics, disabled by default, for aggregate
@@ -17,6 +19,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   twenty meaningful menu sessions, offers a permanent opt-out, and can remind
   at most once more after ninety days. A permanent Support LuxMini action is
   also available from the menu and Settings.
+
+### Changed
+
+- Release builds now use Apple Developer ID, hardened runtime, trusted
+  timestamps, and Apple notarization so they pass Gatekeeper without an
+  `Open Anyway` workaround.
 
 ## [0.3.3] - 2026-08-27
 
@@ -92,7 +100,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Effects submenu (blink / pulse / SOS / strobe), launch-at-login, and Sparkle
   auto-updates.
 
-[Unreleased]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.0...v0.3.1

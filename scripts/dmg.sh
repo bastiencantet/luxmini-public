@@ -7,13 +7,14 @@ cd "$ROOT"
 # shellcheck source=scripts/lib.sh
 . "$ROOT/scripts/lib.sh"
 
-require hdiutil
+require codesign hdiutil
 
 APP_NAME="LuxMini"
 VERSION="${VERSION:-$(cargo_version)}"
 APP_DIR="dist/${APP_NAME}.app"
 DMG_PATH="dist/${APP_NAME}-${VERSION}.dmg"
 STAGE_DIR="dist/dmg-stage"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 
 VERSION="${VERSION}" ./scripts/bundle.sh
 
@@ -31,6 +32,16 @@ hdiutil create \
     -ov \
     -format UDZO \
     "${DMG_PATH}"
+
+if [[ "$SIGNING_IDENTITY" != "-" ]]; then
+    echo "==> Signing disk image with Developer ID"
+    codesign \
+        --force \
+        --timestamp \
+        --sign "$SIGNING_IDENTITY" \
+        "${DMG_PATH}"
+    codesign --verify --strict --verbose=2 "${DMG_PATH}"
+fi
 
 rm -rf "${STAGE_DIR}"
 

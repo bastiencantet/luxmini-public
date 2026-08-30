@@ -16,6 +16,21 @@ TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 APP_DIR="dist/${APP_NAME}.app"
 APPCAST_URL="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/appcast.xml"
 SPARKLE_PUBLIC_KEY="$(cat "${ROOT}/.sparkle_public_key")"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
+
+sign_code() {
+    local target="$1"
+    if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+        codesign --force --sign - "$target"
+    else
+        codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --sign "$SIGNING_IDENTITY" \
+            "$target"
+    fi
+}
 
 echo "==> Building universal release binaries (arm64 + x86_64, version ${VERSION})"
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -96,11 +111,25 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> Ad-hoc codesigning (Sparkle + app)"
-# Sign the embedded framework first (recursively covers XPCServices inside).
-codesign --force --deep --sign - "${APP_DIR}/Contents/Frameworks/Sparkle.framework"
-codesign --force --sign - "${APP_DIR}/Contents/MacOS/led-helper"
-codesign --force --sign - "${APP_DIR}/Contents/MacOS/mac-led-tray"
-codesign --force --sign - "${APP_DIR}"
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    echo "==> Ad-hoc codesigning (Sparkle + app)"
+else
+    echo "==> Developer ID codesigning with hardened runtime"
+fi
+
+# Sign nested code from the inside out. This keeps every executable covered by
+# the same Developer ID identity and avoids relying on codesign --deep to guess
+# the framework's bundle boundaries.
+SPARKLE_DIR="${APP_DIR}/Contents/Frameworks/Sparkle.framework/Versions/B"
+sign_code "${SPARKLE_DIR}/XPCServices/Downloader.xpc"
+sign_code "${SPARKLE_DIR}/XPCServices/Installer.xpc"
+sign_code "${SPARKLE_DIR}/Updater.app"
+sign_code "${SPARKLE_DIR}/Autoupdate"
+sign_code "${APP_DIR}/Contents/Frameworks/Sparkle.framework"
+sign_code "${APP_DIR}/Contents/MacOS/led-helper"
+sign_code "${APP_DIR}/Contents/MacOS/mac-led-tray"
+sign_code "${APP_DIR}"
+
+codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
 echo "==> Done: ${APP_DIR}"
