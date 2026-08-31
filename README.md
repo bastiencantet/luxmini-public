@@ -131,7 +131,7 @@ localhost API stay on the Mac.
 LuxMini is free and its source is open to read, build, and audit. If it saved you a piece of tape:
 - ⭐ Star the repo
 - ☕ [Support development](https://www.buymeacoffee.com/bastiencantet). Donations
-  help fund Apple signing and notarization, profile hosting, and physical testing
+  help fund the Apple Developer membership, profile hosting, and physical testing
   on new Mac hardware.
 
 ## Contributing
@@ -148,7 +148,3 @@ serial number, or another device identifier.
 for any purpose **except** building a competing product or reselling it. Each
 release automatically converts to **Apache 2.0** two years after it ships, so the
 code does become fully open over time.
-
----
-
-<sub>Parts of this README were drafted with AI assistance and reviewed by the author.</sub>
