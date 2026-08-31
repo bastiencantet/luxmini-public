@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>LuxMini</title>
-    <link>https://github.com/bastiencantet/mac-led-tray</link>
+    <link>https://github.com/bastiencantet/luxmini-public</link>
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
