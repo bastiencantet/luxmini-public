@@ -57,8 +57,7 @@ define_class!(
             let on = state != 0;
             schedule::note_manual_override(); // don't let auto-dim fight a manual change
             with_state(|s| s.set_on(on));
-            self.note_meaningful_action();
-            self.refresh_ui();
+            self.finish_led_action();
         }
 
         #[unsafe(method(sliderChanged:))]
@@ -71,51 +70,49 @@ define_class!(
             let byte = value.clamp(0.0, 255.0).round() as u8;
             schedule::note_manual_override(); // don't let auto-dim fight a manual change
             with_state(|s| s.set_brightness(byte));
-            self.note_meaningful_action();
-            self.refresh_ui();
+            self.finish_led_action();
         }
 
         #[unsafe(method(effectNone:))]
         fn effect_none(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(LedState::clear_effect);
-            self.note_meaningful_action();
-            self.refresh_ui();
+            self.finish_led_action();
         }
 
         #[unsafe(method(effectBlink:))]
         fn effect_blink(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Blink));
-            self.note_meaningful_action();
+            self.finish_led_action();
         }
 
         #[unsafe(method(effectBlinkFast:))]
         fn effect_blink_fast(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::BlinkFast));
-            self.note_meaningful_action();
+            self.finish_led_action();
         }
 
         #[unsafe(method(effectPulse:))]
         fn effect_pulse(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Pulse));
-            self.note_meaningful_action();
+            self.finish_led_action();
         }
 
         #[unsafe(method(effectSos:))]
         fn effect_sos(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Sos));
-            self.note_meaningful_action();
+            self.finish_led_action();
         }
 
         #[unsafe(method(effectStrobe:))]
         fn effect_strobe(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
             with_state(|s| s.start_effect(Effect::Strobe));
-            self.note_meaningful_action();
+            self.finish_led_action();
         }
 
         #[unsafe(method(toggleAutoDimSunset:))]
@@ -406,6 +403,24 @@ impl Handler {
         update_tray_icon(&ui.status_item, is_on, brightness);
     }
 
+    pub fn show_control_error_if_any() -> bool {
+        let error = with_state(LedState::take_control_error).flatten();
+        if let Some(error) = error {
+            show_led_control_error(&error);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn finish_led_action(&self) {
+        let failed = Self::show_control_error_if_any();
+        if !failed {
+            self.note_meaningful_action();
+        }
+        self.refresh_ui();
+    }
+
     fn note_meaningful_action(&self) {
         self.ivars().menu_had_manual_action.set(true);
     }
@@ -529,6 +544,38 @@ impl Handler {
             let _: () = msg_send![&ui.autodim_sunset_item, setState: sunset_state];
             let _: () = msg_send![&ui.autodim_dim_item, setState: dim_state];
         }
+    }
+}
+
+fn show_led_control_error(detail: &str) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str(crate::i18n::s(
+        "LuxMini could not control the LED",
+        "LuxMini n’a pas pu contrôler la LED",
+    )));
+    let message = format!(
+        "{}\n\n{}: {detail}",
+        crate::i18n::s(
+            "The control was not applied. LuxMini has restored the interface to the last confirmed state.",
+            "La commande n’a pas été appliquée. LuxMini a restauré l’interface au dernier état confirmé.",
+        ),
+        crate::i18n::s("Technical detail", "Détail technique"),
+    );
+    alert.setInformativeText(&NSString::from_str(&message));
+    alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s(
+        "Send Feedback",
+        "Envoyer un retour",
+    )));
+    alert.addButtonWithTitle(&NSString::from_str("OK"));
+    if alert.runModal() == FIRST_ALERT_BUTTON {
+        open_feedback();
     }
 }
 

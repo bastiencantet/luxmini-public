@@ -74,6 +74,7 @@ fn main() {
         with_state(|s| s.apply_preset(&last));
         app_handle.handler.refresh_ui();
     }
+    ui::handler::Handler::show_control_error_if_any();
 
     // Restored last-state is applied first; the scheduler (if a rule is active)
     // then immediately re-asserts the correct value for the current time.

@@ -17,9 +17,8 @@ pub struct Helper {
     _child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
-    /// Which SMC key / byte layout to use on this Mac. `None` → no profile
-    /// installed for this model yet, so LED writes are no-ops (the UI still works).
-    profile: Option<DeviceProfile>,
+    /// Which SMC key and byte layout to use on this Mac.
+    profile: DeviceProfile,
 }
 
 fn is_setuid_root(path: &Path) -> bool {
@@ -61,6 +60,12 @@ impl Helper {
     }
 
     pub fn spawn_with_profile(profile: Option<DeviceProfile>) -> std::io::Result<Self> {
+        let profile = profile.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "device profile unavailable for this Mac model",
+            )
+        })?;
         let exe_dir = std::env::current_exe()?
             .parent()
             .map(std::path::Path::to_path_buf)
@@ -112,10 +117,6 @@ impl Helper {
             .ok_or_else(|| std::io::Error::other("helper stdout pipe missing"))?;
         let stdout = BufReader::new(stdout);
 
-        if profile.is_none() {
-            eprintln!("no device profile installed — LED control unavailable for this Mac model");
-        }
-
         let mut helper = Self {
             _child: child,
             stdin,
@@ -151,14 +152,9 @@ impl Helper {
     }
 
     pub fn write_led(&mut self, value: u8) -> std::io::Result<()> {
-        // Key + byte layout come from the device profile (data), never hardcoded. No profile → no write.
-        let cmd = match self.profile.as_ref() {
-            Some(p) => {
-                let [b0, b1] = p.bytes(value);
-                format!("WRITE {} {b0:02x} {b1:02x}", p.key)
-            }
-            None => return Ok(()),
-        };
+        // Key and byte layout come from the device profile and are never hardcoded.
+        let [b0, b1] = self.profile.bytes(value);
+        let cmd = format!("WRITE {} {b0:02x} {b1:02x}", self.profile.key);
         self.send(&cmd)?;
         let resp = self.recv()?;
         if resp.starts_with("OK") {
