@@ -302,6 +302,24 @@ define_class!(
             crate::location::request(self);
         }
 
+        #[unsafe(method(detectLedAccess:))]
+        fn detect_led_access(&self, _sender: &AnyObject) {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            let model = crate::compat::get_mac_model();
+            let previous = with_state(LedState::pause_for_profile_discovery);
+            if let Some(new_state) = crate::onboarding::run_manual(mtm, &model) {
+                if let Ok(mut state) = STATE.lock() {
+                    *state = Some(new_state);
+                }
+            }
+            if let Some(previous) = previous {
+                with_state(|state| state.apply_preset(&previous));
+            }
+            self.refresh_ui();
+        }
+
         // CLLocationManagerDelegate: a fix arrived.
         #[unsafe(method(locationManager:didUpdateLocations:))]
         fn location_did_update(&self, _manager: &AnyObject, locations: &AnyObject) {

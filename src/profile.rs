@@ -49,6 +49,8 @@ struct TokenResponse {
 #[derive(Deserialize)]
 struct ProfileResponse {
     model_id: String,
+    #[serde(default)]
+    candidate_slot: Option<u8>,
     key: String,
     format: String,
     max: u8,
@@ -57,7 +59,15 @@ struct ProfileResponse {
 #[derive(Serialize)]
 struct ValidationRequest<'a> {
     model_id: &'a str,
+    candidate_slot: u8,
     outcome: &'a str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateProfile {
+    pub slot: u8,
+    pub total: u8,
+    pub profile: DeviceProfile,
 }
 
 fn profile_path() -> Option<PathBuf> {
@@ -143,8 +153,32 @@ impl DeviceProfile {
 
     /// Fetch a pending profile for the explicit visual hardware test. Candidate
     /// profiles are never cached implicitly.
-    pub fn fetch_candidate(model: &str) -> Option<Self> {
-        Self::fetch_from(model, CANDIDATE_PROFILE_URL)
+    pub fn fetch_candidate(model: &str, slot: u8) -> Option<CandidateProfile> {
+        if !(1..=3).contains(&slot) {
+            return None;
+        }
+        let agent = Self::agent();
+        let token = Self::token(&agent, model)?;
+        let response = agent
+            .get(CANDIDATE_PROFILE_URL)
+            .query("model_id", model)
+            .query("candidate_slot", &slot.to_string())
+            .set("Authorization", &format!("Bearer {token}"))
+            .call()
+            .ok()?;
+        let total = response
+            .header("X-LuxMini-Candidate-Count")
+            .and_then(|value| value.parse::<u8>().ok())?
+            .clamp(1, 3);
+        let response: ProfileResponse = response.into_json().ok()?;
+        if response.candidate_slot != Some(slot) {
+            return None;
+        }
+        Some(CandidateProfile {
+            slot,
+            total,
+            profile: Self::from_response(&response, model)?,
+        })
     }
 
     /// Return a locally cached profile without contacting the API.
@@ -163,8 +197,10 @@ impl DeviceProfile {
 
     /// Send an anonymous validation outcome. This is best-effort and contains
     /// only the hardware model and the answer; no serial or installation ID.
-    pub fn report_validation(model: &str, outcome: &str) -> bool {
-        if !matches!(outcome, "yes" | "no" | "technical_error") {
+    pub fn report_validation(model: &str, slot: u8, outcome: &str) -> bool {
+        if !(1..=3).contains(&slot)
+            || !matches!(outcome, "yes" | "no" | "selected" | "technical_error")
+        {
             return false;
         }
         let agent = Self::agent();
@@ -176,6 +212,7 @@ impl DeviceProfile {
             .set("Authorization", &format!("Bearer {token}"))
             .send_json(ValidationRequest {
                 model_id: model,
+                candidate_slot: slot,
                 outcome,
             })
             .is_ok()
@@ -353,6 +390,7 @@ mod tests {
     fn validates_api_response_for_the_requested_model() {
         let valid = ProfileResponse {
             model_id: "Mac16,9".into(),
+            candidate_slot: None,
             key: "ABCD".into(),
             format: "vv".into(),
             max: 255,
@@ -361,6 +399,7 @@ mod tests {
 
         let mismatched = ProfileResponse {
             model_id: "Mac13,1".into(),
+            candidate_slot: None,
             key: "ABCD".into(),
             format: "vv".into(),
             max: 255,

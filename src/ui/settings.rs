@@ -234,6 +234,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         (i18n::s("Effects", "Effets"), "sparkles"),
         (i18n::s("Presets", "Presets"), "square.stack"),
         (i18n::s("General", "Général"), "gearshape"),
+        (i18n::s("Advanced", "Avancé"), "wrench.and.screwdriver"),
         (i18n::s("About", "À propos"), "info.circle"),
     ];
     let row_views: Vec<Retained<NSView>> = labels
@@ -468,7 +469,39 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         prect(286.0, 28.0, 34.0, 150.0),
     ));
 
-    // ── Pane 4: About ───────────────────────────────────────────────────
+    // ── Pane 4: Advanced ────────────────────────────────────────────────
+    let p_advanced = pane(mtm);
+    p_advanced.addSubview(&label(
+        mtm,
+        i18n::s("Advanced", "Avancé"),
+        prect(18.0, 22.0, 16.0, 300.0),
+        true,
+    ));
+    p_advanced.addSubview(&hint(
+        mtm,
+        i18n::s(
+            "Test up to three allowlisted LED profiles and keep only the one you visually confirm.",
+            "Teste jusqu'à trois profils LED autorisés et conserve uniquement celui que vous confirmez visuellement.",
+        ),
+        prect(54.0, 36.0, 16.0, 396.0),
+    ));
+    p_advanced.addSubview(&push_button(
+        mtm,
+        handler,
+        i18n::s("Detect LED access…", "Détecter l'accès à la LED…"),
+        sel!(detectLedAccess:),
+        prect(104.0, 30.0, 16.0, 250.0),
+    ));
+    p_advanced.addSubview(&hint(
+        mtm,
+        i18n::s(
+            "Each test restores the previous LED value. No arbitrary SMC key is scanned or written.",
+            "Chaque test restaure la valeur précédente. Aucune clé SMC arbitraire n'est parcourue ni modifiée.",
+        ),
+        prect(148.0, 36.0, 16.0, 396.0),
+    ));
+
+    // ── Pane 5: About ───────────────────────────────────────────────────
     let p_about = pane(mtm);
     p_about.addSubview(&label(
         mtm,
@@ -531,7 +564,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     );
     content.addSubview(&save);
 
-    let sections = vec![p_auto, p_fx, p_preset, p_gen, p_about];
+    let sections = vec![p_auto, p_fx, p_preset, p_gen, p_advanced, p_about];
     for s in &sections {
         content.addSubview(s);
     }

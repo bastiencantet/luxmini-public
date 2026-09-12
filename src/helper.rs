@@ -151,26 +151,78 @@ impl Helper {
         Ok(line.trim().to_string())
     }
 
-    pub fn write_led(&mut self, value: u8) -> std::io::Result<()> {
+    fn write_led_inner(&mut self, value: u8, emit_telemetry: bool) -> std::io::Result<()> {
         // Key and byte layout come from the device profile and are never hardcoded.
         let [b0, b1] = self.profile.bytes(value);
         let cmd = format!("WRITE {} {b0:02x} {b1:02x}", self.profile.key);
         self.send(&cmd)?;
         let resp = self.recv()?;
         if resp.starts_with("OK") {
-            crate::telemetry::emit_once(
-                "led_activation_result",
-                "success",
-                &crate::compat::get_mac_model(),
-            );
+            if emit_telemetry {
+                crate::telemetry::emit_once(
+                    "led_activation_result",
+                    "success",
+                    &crate::compat::get_mac_model(),
+                );
+            }
             Ok(())
         } else {
-            crate::telemetry::emit_once(
-                "led_activation_result",
-                "error",
-                &crate::compat::get_mac_model(),
-            );
+            if emit_telemetry {
+                crate::telemetry::emit_once(
+                    "led_activation_result",
+                    "error",
+                    &crate::compat::get_mac_model(),
+                );
+            }
             Err(std::io::Error::other(resp))
+        }
+    }
+
+    pub fn write_led(&mut self, value: u8) -> std::io::Result<()> {
+        self.write_led_inner(value, true)
+    }
+
+    /// Write a discovery pulse without counting it as successful normal LED
+    /// activation. Visual confirmation is recorded separately by onboarding.
+    pub fn write_led_test(&mut self, value: u8) -> std::io::Result<()> {
+        self.write_led_inner(value, false)
+    }
+
+    /// Read the candidate key before a discovery pulse so the exact original
+    /// bytes can be restored even when the candidate is rejected.
+    pub fn read_profile_raw(&mut self) -> std::io::Result<Vec<u8>> {
+        self.send(&format!("READ {}", self.profile.key))?;
+        let response = self.recv()?;
+        let hex = response
+            .strip_prefix("OK ")
+            .ok_or_else(|| std::io::Error::other(response.clone()))?;
+        hex.split_whitespace()
+            .map(|byte| {
+                u8::from_str_radix(byte, 16)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+            })
+            .collect()
+    }
+
+    /// Restore bytes previously returned by `read_profile_raw`.
+    pub fn restore_profile_raw(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        if bytes.is_empty() || bytes.len() > 32 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid SMC restore length",
+            ));
+        }
+        let hex = bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.send(&format!("WRITE {} {hex}", self.profile.key))?;
+        let response = self.recv()?;
+        if response.starts_with("OK") {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(response))
         }
     }
 }

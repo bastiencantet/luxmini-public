@@ -145,6 +145,14 @@ impl LedState {
         }
     }
 
+    /// Stop a running effect before profile discovery while preserving the
+    /// user's complete manual intent so it can be resumed afterward.
+    pub fn pause_for_profile_discovery(&mut self) -> preferences::Preset {
+        let preset = self.capture_preset();
+        self.stop_effect();
+        preset
+    }
+
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirrors preferences::save_*(&Preset) for call-site symmetry
     pub fn apply_preset(&mut self, p: &preferences::Preset) {
         self.stop_effect();

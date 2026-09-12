@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A bounded LED-access detector for pending and manually retested Macs. It tries
+  at most three server-allowlisted LED profiles with numbered pulse patterns,
+  restores the exact previous LED bytes after every attempt, and activates only
+  a profile the user confirms visually.
+- An Advanced settings section with a manual Detect LED Access action, including
+  support for retesting an already known Mac when normal controls do not affect
+  its front LED.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added
