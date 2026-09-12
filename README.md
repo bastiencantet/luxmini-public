@@ -112,10 +112,11 @@ Ready-to-use recipes for Home Assistant, AppleScript, and the shell are in
 LuxMini has no account, advertising SDK, or cross-app tracking. The client does
 not generate or send a serial number or installation identifier.
 
-Network calls are limited to update checks, requesting the profile matching the
-Mac model, and submitting a `yes`, `no`, or `technical_error` result after an
-explicit pending-hardware test. The profile service can aggregate profile
-requests by model and validation outcomes. The matching profile is cached in
+Network calls are limited to update checks, requesting profiles matching the Mac
+model, and submitting a bounded candidate number with a `yes`, `no`, `selected`,
+or `technical_error` result after an explicit visual test. The profile service
+can aggregate requests by model, candidate number, and validation outcome. The
+selected profile is cached in
 `~/Library/Application Support/LuxMini/profile`.
 
 Anonymous product diagnostics are optional and disabled by default. If enabled
