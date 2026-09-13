@@ -384,7 +384,7 @@ mod tests {
         // A 4-char key packs to its four ASCII bytes, MSB first.
         assert_eq!(
             key_to_u32("ABCD"),
-            u32::from_be_bytes([b'A', b'B', b'C', b'D'])
+            u32::from_be_bytes(*b"ABCD")
         );
     }
 
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn key_name_decodes_and_trims_nuls() {
         assert_eq!(
-            key_name(u32::from_be_bytes([b'#', b'K', b'E', b'Y'])),
+            key_name(u32::from_be_bytes(*b"#KEY")),
             "#KEY"
         );
         assert_eq!(key_name(u32::from_be_bytes([b'T', b'C', 0, 0])), "TC");

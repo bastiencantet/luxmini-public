@@ -14,10 +14,11 @@ version = 2
 allow = [
     "MIT",
     "Apache-2.0",
+    "Unicode-3.0",
     "Zlib",
 ]
 confidence-threshold = 0.9
-# This crate itself ships under FSL-1.1-Apache-2.0 (a non-SPDX expression, via
+# This crate itself ships under FSL-1.1-ALv2 (via
 # `license-file`) and is `publish = false`, so skip the license check on our own
 # workspace crate — the `allow` list above governs third-party deps only.
 private = { ignore = true }
