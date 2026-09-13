@@ -2,7 +2,7 @@
 name = "mac-led-tray"
 version = "0.4.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.85"
 description = "LuxMini — turn off, dim, or schedule the front LED on your Mac, from the menu bar."
 authors = ["Bastien Cantet"]
 license-file = "LICENSE"

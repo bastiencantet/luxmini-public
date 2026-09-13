@@ -347,10 +347,7 @@ mod tests {
     #[test]
     fn key_to_u32_packs_big_endian() {
         // A 4-char key packs to its four ASCII bytes, MSB first.
-        assert_eq!(
-            key_to_u32("ABCD"),
-            u32::from_be_bytes(*b"ABCD")
-        );
+        assert_eq!(key_to_u32("ABCD"), u32::from_be_bytes(*b"ABCD"));
     }
 
     #[test]
