@@ -55,7 +55,7 @@ dependency tree permissive-licensed and advisory-free.
 
 ## MSRV
 
-The minimum supported Rust version is **1.85** (declared as `rust-version` in
+The minimum supported Rust version is **1.88** (declared as `rust-version` in
 `Cargo.toml` and exercised by a dedicated CI job). Bumping it is allowed when a
 new language feature genuinely helps, but call it out explicitly in the PR and
 the changelog.
