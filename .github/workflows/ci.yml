@@ -42,19 +42,19 @@ jobs:
         run: cargo build --release
 
   msrv:
-    name: build on MSRV (1.85)
+    name: build on MSRV (1.88)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust 1.85
-        uses: dtolnay/rust-toolchain@1.85
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
       # RUSTUP_TOOLCHAIN overrides the repo's rust-toolchain.toml (pins stable)
       # so this job genuinely exercises the declared minimum.
       - name: Build with the declared minimum supported Rust version
         run: cargo build
         env:
-          RUSTUP_TOOLCHAIN: "1.85"
+          RUSTUP_TOOLCHAIN: "1.88"
 
   deny:
     name: cargo-deny (licenses · advisories · bans)
