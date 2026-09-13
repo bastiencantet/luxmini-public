@@ -9,8 +9,6 @@ const SUPPORTED_EXACT: &[&str] = &[
     // Mac mini (Apple Silicon)
     "Mac14,3",  // M2
     "Mac14,12", // M2 Pro
-    "Mac16,10", // M4
-    "Mac16,11", // M4 Pro
     // Mac Studio — same front-LED mechanism across all models (community-tested).
     "Mac13,1",  // M1 Max (2022)
     "Mac13,2",  // M1 Ultra (2022)
@@ -24,6 +22,10 @@ const SUPPORTED_EXACT: &[&str] = &[
 // machine confirms the candidate LED profile. Keep this separate from
 // `SUPPORTED_EXACT` so a release cannot silently claim hardware validation.
 const PENDING_EXACT: &[&str] = &[
+    // Re-validation requested after two independent macOS users reported that
+    // the approved profile produced no visible LED response.
+    "Mac16,10", // Mac mini M4 (2024)
+    "Mac16,11", // Mac mini M4 Pro (2024)
     "Mac18,5",  // Mac mini M6 (2026)
     "Mac17,16", // Mac mini M5 Pro (2026)
     "Mac17,14", // Mac Studio M5 Max (2026)
@@ -100,7 +102,7 @@ pub fn show_unsupported_alert(mtm: MainThreadMarker, model: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_supported, SUPPORTED_EXACT};
+    use super::{is_pending, is_supported, SUPPORTED_EXACT};
 
     #[test]
     fn mac_mini_prefix_is_supported() {
@@ -132,6 +134,14 @@ mod tests {
                 "{m} must not be enabled before validation"
             );
             assert!(super::is_pending(m), "{m} should be recognized as pending");
+        }
+    }
+
+    #[test]
+    fn m4_minis_require_visual_profile_revalidation() {
+        for model in ["Mac16,10", "Mac16,11"] {
+            assert!(is_pending(model));
+            assert!(!is_supported(model));
         }
     }
 
