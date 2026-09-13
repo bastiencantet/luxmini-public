@@ -61,8 +61,7 @@ is intentionally not published in the client repository.
 ## How it works
 
 The front LED is a PWM channel on the Mac's **SMC**. LuxMini:
-1. runs a small **setuid-root helper** (`led-helper`) that talks to `AppleSMC` via IOKit,
-   the only privileged part, kept minimal and auditable;
+1. runs a small **setuid-root helper** (`led-helper`) that talks to `AppleSMC` via IOKit;
 2. loads a **device profile** that says *how* to address the LED on your specific Mac model
    (the addressing differs across Intel / T2 / Apple Silicon / Studio);
 3. writes the brightness; the app itself stays unprivileged.
@@ -70,6 +69,22 @@ The front LED is a PWM channel on the Mac's **SMC**. LuxMini:
 The per-model addressing, meaning which SMC channel each model uses, lives in a **device profile**
 loaded at runtime rather than hardcoded, so the app stays clean and supports a new model by
 shipping a profile instead of a new build.
+
+### Privileged helper security
+
+`led-helper` starts as a child of LuxMini and remains alive only while LuxMini is
+running. It is not installed as a `LaunchDaemon`, does not listen on a socket,
+does not access the network, and exits when its private stdin pipe closes.
+
+Its protocol contains only ping, LED read, and LED write operations. It cannot
+enumerate SMC keys. It rejects malformed key names and accepts only the two-byte
+payload used by LuxMini LED profiles. The app reads the current two bytes before
+an interactive candidate test and restores those exact bytes afterward.
+
+The current profile cache is bound to the exact Mac model and stored with mode
+`0600`. It is not yet cryptographically signed. Signing profiles in the API and
+verifying them inside the privileged helper is the remaining hardening step
+before claiming that the helper itself enforces the server allowlist.
 
 ## Local control API
 

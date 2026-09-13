@@ -1,10 +1,10 @@
 // Setuid-root helper for SMC writes.
 // Protocol (line-based stdin/stdout):
 //   PING                                      -> PONG
-//   WRITE <KEY> <HEXBYTE> <HEXBYTE>...        -> OK / ERR <msg>
-//   READ  <KEY>                               -> OK <HEXBYTE>... / ERR <msg>
-//   LIST                                      -> OK count <N> \n <KEY>\n... / ERR <msg>
-// Hex bytes are space-separated lowercase hex (max 32 bytes; the app sends exactly 2).
+//   WRITE <KEY> <HEXBYTE> <HEXBYTE>           -> OK / ERR <msg>
+//   READ  <KEY>                               -> OK <HEXBYTE> <HEXBYTE> / ERR <msg>
+// LED profiles always use one printable 4-byte SMC key and exactly two data bytes.
+// The helper deliberately has no command for enumerating the machine's SMC keys.
 // The key arrives over IPC from the device profile and is NEVER hardcoded here.
 // WRITE/READ surface the SMC `result` byte (e.g. 0x84 = key not found), so an "OK"
 // genuinely means the SMC accepted the operation — not merely that the kernel call returned.
@@ -27,7 +27,6 @@ mod smc {
     // SMC selectors carried in SMCKeyData.data8.
     const SMC_CMD_READ_BYTES: u8 = 5;
     const SMC_CMD_WRITE_KEY: u8 = 6;
-    const SMC_CMD_READ_INDEX: u8 = 8;
     const SMC_CMD_READ_KEY_INFO: u8 = 9;
 
     extern "C" {
@@ -96,16 +95,6 @@ mod smc {
     /// Pack a (≤4 char) SMC key name into its big-endian u32 representation.
     pub fn key_to_u32(key: &str) -> u32 {
         be_u32_prefix(key.as_bytes())
-    }
-
-    /// Decode a big-endian u32 key field back into its 4-character name (trailing NULs
-    /// trimmed). Inverse of [`key_to_u32`] for ASCII keys.
-    pub fn key_name(raw: u32) -> String {
-        raw.to_be_bytes()
-            .iter()
-            .filter(|&&b| b != 0)
-            .map(|&b| b as char)
-            .collect()
     }
 
     pub struct SmcConn(IOConnect);
@@ -199,29 +188,6 @@ mod smc {
             Ok(())
         }
 
-        /// Number of SMC keys on this machine (the value of the `#KEY` key).
-        pub fn key_count(&self) -> io::Result<u32> {
-            let bytes = self.read_key("#KEY")?;
-            Ok(be_u32_prefix(&bytes))
-        }
-
-        /// The 4-character name of the key at `index` (`0..key_count`). Lets us enumerate
-        /// every key a given Mac exposes without hardcoding any.
-        pub fn key_at_index(&self, index: u32) -> io::Result<String> {
-            let mut input = SMCKeyData::new();
-            input.data8 = SMC_CMD_READ_INDEX;
-            input.data32 = index;
-            let out = self.call(&input)?;
-            if out.result != 0 {
-                return Err(io::Error::other(format!(
-                    "smc index result 0x{:02x}",
-                    out.result
-                )));
-            }
-            // The key name comes back big-endian in the `key` field; trailing NULs trimmed.
-            Ok(key_name(out.key))
-        }
-
         /// Read a key's raw bytes. Used to verify a write took, and (later) to detect
         /// which keys a given Mac model supports.
         pub fn read_key(&self, key: &str) -> io::Result<Vec<u8>> {
@@ -262,12 +228,23 @@ fn parse_hex_bytes(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
         .collect()
 }
 
+fn parse_led_bytes(s: &str) -> Result<[u8; 2], String> {
+    let bytes = parse_hex_bytes(s).map_err(|error| format!("bad hex: {error}"))?;
+    bytes
+        .try_into()
+        .map_err(|_| "LED payload must contain exactly two bytes".to_string())
+}
+
 /// Format bytes as a space-separated lowercase-hex string (the `READ` reply / `WRITE` input form).
 fn format_hex_bytes(data: &[u8]) -> String {
     data.iter()
         .map(|b| format!("{b:02x}"))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn is_valid_led_key(key: &str) -> bool {
+    key.len() == 4 && key.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 /// A parsed line of the stdin protocol. Parsing is kept separate from the `IOKit`
@@ -277,7 +254,6 @@ enum Command<'a> {
     Ping,
     Write { key: &'a str, hex: &'a str },
     Read { key: &'a str },
-    List,
     Unknown,
 }
 
@@ -287,9 +263,8 @@ fn parse_command(line: &str) -> Command<'_> {
     let parts: Vec<&str> = line.trim().splitn(3, ' ').collect();
     match parts.as_slice() {
         ["PING"] => Command::Ping,
-        ["WRITE", key, hex] => Command::Write { key, hex },
-        ["READ", key] => Command::Read { key },
-        ["LIST"] => Command::List,
+        ["WRITE", key, hex] if is_valid_led_key(key) => Command::Write { key, hex },
+        ["READ", key] if is_valid_led_key(key) => Command::Read { key },
         _ => Command::Unknown,
     }
 }
@@ -312,7 +287,7 @@ fn main() {
             Command::Ping => {
                 let _ = writeln!(stdout, "PONG");
             }
-            Command::Write { key, hex } => match parse_hex_bytes(hex) {
+            Command::Write { key, hex } => match parse_led_bytes(hex) {
                 Ok(data) => match conn.write_key(key, &data) {
                     Ok(()) => {
                         let _ = writeln!(stdout, "OK");
@@ -322,25 +297,15 @@ fn main() {
                     }
                 },
                 Err(e) => {
-                    let _ = writeln!(stdout, "ERR bad hex: {e}");
-                }
-            },
-            Command::Read { key } => match conn.read_key(key) {
-                Ok(data) => {
-                    let _ = writeln!(stdout, "OK {}", format_hex_bytes(&data));
-                }
-                Err(e) => {
                     let _ = writeln!(stdout, "ERR {e}");
                 }
             },
-            Command::List => match conn.key_count() {
-                Ok(n) => {
-                    let _ = writeln!(stdout, "OK count {n}");
-                    for i in 0..n {
-                        if let Ok(name) = conn.key_at_index(i) {
-                            let _ = writeln!(stdout, "{name}");
-                        }
-                    }
+            Command::Read { key } => match conn.read_key(key) {
+                Ok(data) if data.len() == 2 => {
+                    let _ = writeln!(stdout, "OK {}", format_hex_bytes(&data));
+                }
+                Ok(_) => {
+                    let _ = writeln!(stdout, "ERR LED key must contain exactly two bytes");
                 }
                 Err(e) => {
                     let _ = writeln!(stdout, "ERR {e}");
@@ -360,8 +325,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::smc::{be_u32_prefix, key_name, key_to_u32};
-    use super::{format_hex_bytes, parse_command, parse_hex_bytes, Command};
+    use super::smc::{be_u32_prefix, key_to_u32};
+    use super::{format_hex_bytes, parse_command, parse_hex_bytes, parse_led_bytes, Command};
 
     #[test]
     fn formats_bytes_as_hex() {
@@ -401,25 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn key_name_decodes_and_trims_nuls() {
-        assert_eq!(
-            key_name(u32::from_be_bytes([b'#', b'K', b'E', b'Y'])),
-            "#KEY"
-        );
-        assert_eq!(key_name(u32::from_be_bytes([b'T', b'C', 0, 0])), "TC");
-        assert_eq!(key_name(0), "");
-    }
-
-    #[test]
-    fn key_name_round_trips_with_key_to_u32() {
-        for k in ["#KEY", "ABCD", "F0Ac"] {
-            assert_eq!(key_name(key_to_u32(k)), k);
-        }
-    }
-
-    #[test]
-    fn be_u32_prefix_reads_count() {
-        // The `#KEY` value 00 00 08 03 observed on a real Mac == 2051 keys.
+    fn be_u32_prefix_pads_short_values() {
         assert_eq!(be_u32_prefix(&[0x00, 0x00, 0x08, 0x03]), 2051);
         assert_eq!(be_u32_prefix(&[0xff]), 0xff00_0000);
         assert_eq!(be_u32_prefix(&[]), 0);
@@ -428,7 +375,6 @@ mod tests {
     #[test]
     fn parse_command_recognizes_each_verb() {
         assert_eq!(parse_command("PING"), Command::Ping);
-        assert_eq!(parse_command("LIST"), Command::List);
         assert_eq!(parse_command("READ #KEY"), Command::Read { key: "#KEY" });
         assert_eq!(
             parse_command("WRITE ABCD ff 00"),
@@ -456,6 +402,10 @@ mod tests {
         assert_eq!(parse_command("  PING  "), Command::Ping);
         assert_eq!(parse_command(""), Command::Unknown);
         assert_eq!(parse_command("BOGUS x y"), Command::Unknown);
+        assert_eq!(parse_command("LIST"), Command::Unknown);
+        assert_eq!(parse_command("READ ABC"), Command::Unknown);
+        assert_eq!(parse_command("READ ABCDE"), Command::Unknown);
+        assert_eq!(parse_command("READ A BC"), Command::Unknown);
         // READ needs exactly one argument; a stray extra token is rejected, not misread.
         assert_eq!(parse_command("READ #KEY extra"), Command::Unknown);
     }
@@ -463,6 +413,14 @@ mod tests {
     #[test]
     fn parses_two_bytes() {
         assert!(matches!(parse_hex_bytes("ff 00").as_deref(), Ok([255, 0])));
+        assert_eq!(parse_led_bytes("ff 00"), Ok([255, 0]));
+    }
+
+    #[test]
+    fn led_payload_requires_exactly_two_bytes() {
+        assert!(parse_led_bytes("").is_err());
+        assert!(parse_led_bytes("7f").is_err());
+        assert!(parse_led_bytes("01 02 03").is_err());
     }
 
     #[test]

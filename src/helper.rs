@@ -2,7 +2,7 @@
 //!
 //! Wire format (newline-terminated, sent to the helper's stdin):
 //!   `WRITE <KEY> <HEXBYTE> <HEXBYTE>` — space-separated lowercase hex; the app always sends
-//!   exactly 2 bytes, though the helper accepts up to 32.
+//!   exactly 2 bytes and the helper rejects any other payload size.
 
 use crate::auth;
 use crate::profile::DeviceProfile;
@@ -206,7 +206,7 @@ impl Helper {
 
     /// Restore bytes previously returned by `read_profile_raw`.
     pub fn restore_profile_raw(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        if bytes.is_empty() || bytes.len() > 32 {
+        if bytes.len() != 2 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "invalid SMC restore length",
