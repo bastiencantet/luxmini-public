@@ -143,7 +143,7 @@ serial number, or another device identifier.
 
 ## License
 
-[FSL-1.1-Apache-2.0](LICENSE) © Bastien Cantet. **Functional Source License**
+[FSL-1.1-ALv2](LICENSE) © Bastien Cantet. **Functional Source License**
 ([fair.io](https://fair.io)): the source is open to read, build, modify, and use
 for any purpose **except** building a competing product or reselling it. Each
 release automatically converts to **Apache 2.0** two years after it ships, so the
