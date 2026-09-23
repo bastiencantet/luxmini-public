@@ -350,6 +350,7 @@ pub fn build_app(mtm: MainThreadMarker) -> App {
         i18n::s("Send Feedback\u{2026}", "Envoyer un retour\u{2026}"),
         sel!(sendFeedback:),
     ));
+    #[cfg(feature = "direct")]
     menu.addItem(&make_action(
         mtm,
         &handler,
@@ -363,6 +364,7 @@ pub fn build_app(mtm: MainThreadMarker) -> App {
         sel!(toggleLaunchAtLogin:),
     );
     menu.addItem(&launch_at_login_item);
+    #[cfg(all(feature = "direct", not(feature = "field-test")))]
     menu.addItem(&make_action(
         mtm,
         &handler,

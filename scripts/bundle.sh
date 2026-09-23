@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build LED.app bundle, including the Sparkle.framework update engine.
+# Build the LuxMini app bundle, including Sparkle only for direct releases.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,13 +9,27 @@ cd "$ROOT"
 
 require cargo lipo codesign
 
-APP_NAME="LuxMini"
-BUNDLE_ID="com.bastiencantet.luxmini"
+FIELD_TEST="${FIELD_TEST:-0}"
+if [[ "${FIELD_TEST}" == "1" ]]; then
+    APP_NAME="LuxMini Field Test"
+    BUNDLE_ID="com.bastiencantet.luxmini.fieldtest"
+    APP_DIR="${FIELD_TEST_OUTPUT_DIR:-dist/field-test}/${APP_NAME}.app"
+    CARGO_FEATURES=(--features field-test)
+else
+    APP_NAME="LuxMini"
+    BUNDLE_ID="com.bastiencantet.luxmini"
+    APP_DIR="dist/${APP_NAME}.app"
+    # Keep the array non-empty for the Bash 3.2 shipped with macOS. Expanding
+    # an empty array while `set -u` is active raises an unbound-variable error.
+    CARGO_FEATURES=(--features direct)
+fi
 VERSION="${VERSION:-$(cargo_version)}"
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
-APP_DIR="dist/${APP_NAME}.app"
 APPCAST_URL="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/appcast.xml"
-SPARKLE_PUBLIC_KEY="$(cat "${ROOT}/.sparkle_public_key")"
+SPARKLE_PUBLIC_KEY=""
+if [[ "$FIELD_TEST" != "1" ]]; then
+    SPARKLE_PUBLIC_KEY="$(cat "${ROOT}/.sparkle_public_key")"
+fi
 SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 
 sign_code() {
@@ -34,8 +48,8 @@ sign_code() {
 
 echo "==> Building universal release binaries (arm64 + x86_64, version ${VERSION})"
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
-    cargo build --release --target "${target}" --bin mac-led-tray
-    cargo build --release --target "${target}" --bin led-helper
+    cargo build --release --target "${target}" "${CARGO_FEATURES[@]}" --bin mac-led-tray
+    cargo build --release --target "${target}" "${CARGO_FEATURES[@]}" --bin led-helper
 done
 
 echo "==> Creating bundle: ${APP_DIR}"
@@ -62,9 +76,32 @@ if [[ ! -f "assets/Icon.icns" ]]; then
     python3 scripts/make_icon.py
 fi
 cp "assets/Icon.icns" "${APP_DIR}/Contents/Resources/Icon.icns"
+cp "assets/mac-mini-m4.png" "${APP_DIR}/Contents/Resources/mac-mini-m4.png"
+cp "assets/mac-mini-silicon.png" "${APP_DIR}/Contents/Resources/mac-mini-silicon.png"
+cp "assets/mac-studio.png" "${APP_DIR}/Contents/Resources/mac-studio.png"
+cp "assets/welcome-mini-m4.png" "${APP_DIR}/Contents/Resources/welcome-mini-m4.png"
+cp "assets/welcome-mini-m4-off.jpg" "${APP_DIR}/Contents/Resources/welcome-mini-m4-off.jpg"
+cp "assets/welcome-mini-legacy.png" "${APP_DIR}/Contents/Resources/welcome-mini-legacy.png"
+cp "assets/welcome-mini-legacy-off.jpg" "${APP_DIR}/Contents/Resources/welcome-mini-legacy-off.jpg"
+cp "assets/welcome-studio.png" "${APP_DIR}/Contents/Resources/welcome-studio.png"
+cp "assets/welcome-studio-off.jpg" "${APP_DIR}/Contents/Resources/welcome-studio-off.jpg"
 
-echo "==> Embedding Sparkle.framework"
-cp -R "vendor/Sparkle.framework" "${APP_DIR}/Contents/Frameworks/"
+if [[ "$FIELD_TEST" != "1" ]]; then
+    echo "==> Embedding Sparkle.framework"
+    cp -R "vendor/Sparkle.framework" "${APP_DIR}/Contents/Frameworks/"
+fi
+
+SPARKLE_PLIST=""
+if [[ "$FIELD_TEST" != "1" ]]; then
+    SPARKLE_PLIST="    <key>SUFeedURL</key>
+    <string>${APPCAST_URL}</string>
+    <key>SUPublicEDKey</key>
+    <string>${SPARKLE_PUBLIC_KEY}</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>"
+fi
 
 cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -99,20 +136,13 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
     <string>LuxMini uses your location only to compute local sunrise/sunset times for auto-dim. It stays on your Mac.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
-    <key>SUFeedURL</key>
-    <string>${APPCAST_URL}</string>
-    <key>SUPublicEDKey</key>
-    <string>${SPARKLE_PUBLIC_KEY}</string>
-    <key>SUEnableAutomaticChecks</key>
-    <true/>
-    <key>SUScheduledCheckInterval</key>
-    <integer>86400</integer>
+${SPARKLE_PLIST}
 </dict>
 </plist>
 PLIST
 
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
-    echo "==> Ad-hoc codesigning (Sparkle + app)"
+    echo "==> Ad-hoc codesigning app and bundled components"
 else
     echo "==> Developer ID codesigning with hardened runtime"
 fi
@@ -120,12 +150,14 @@ fi
 # Sign nested code from the inside out. This keeps every executable covered by
 # the same Developer ID identity and avoids relying on codesign --deep to guess
 # the framework's bundle boundaries.
-SPARKLE_DIR="${APP_DIR}/Contents/Frameworks/Sparkle.framework/Versions/B"
-sign_code "${SPARKLE_DIR}/XPCServices/Downloader.xpc"
-sign_code "${SPARKLE_DIR}/XPCServices/Installer.xpc"
-sign_code "${SPARKLE_DIR}/Updater.app"
-sign_code "${SPARKLE_DIR}/Autoupdate"
-sign_code "${APP_DIR}/Contents/Frameworks/Sparkle.framework"
+if [[ "$FIELD_TEST" != "1" ]]; then
+    SPARKLE_DIR="${APP_DIR}/Contents/Frameworks/Sparkle.framework/Versions/B"
+    sign_code "${SPARKLE_DIR}/XPCServices/Downloader.xpc"
+    sign_code "${SPARKLE_DIR}/XPCServices/Installer.xpc"
+    sign_code "${SPARKLE_DIR}/Updater.app"
+    sign_code "${SPARKLE_DIR}/Autoupdate"
+    sign_code "${APP_DIR}/Contents/Frameworks/Sparkle.framework"
+fi
 sign_code "${APP_DIR}/Contents/MacOS/led-helper"
 sign_code "${APP_DIR}/Contents/MacOS/mac-led-tray"
 sign_code "${APP_DIR}"

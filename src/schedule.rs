@@ -149,7 +149,7 @@ pub fn kick() {
 
 fn run(handle: &Arc<SchedHandle>) {
     while !handle.stop.load(Ordering::Relaxed) {
-        evaluate_and_apply();
+        evaluate_and_apply(handle);
         // Cancellable sleep: poll stop/wake every second, cap at 60 s to self-heal a missed wake.
         let mut slept = 0u64;
         while slept < MAX_SLEEP_MS {
@@ -165,7 +165,7 @@ fn run(handle: &Arc<SchedHandle>) {
     }
 }
 
-fn evaluate_and_apply() {
+fn evaluate_and_apply(handle: &SchedHandle) {
     // Manual-override grace: fully passive, never write.
     if epoch_now() < MANUAL_OVERRIDE_UNTIL.load(Ordering::Relaxed) {
         return;
@@ -186,8 +186,11 @@ fn evaluate_and_apply() {
     );
     let target = evaluate(dim, now.minute, st.sunset, st.sunrise);
     crate::led::with_state(|s| {
-        // Re-check the override under the STATE lock so "user wins" is atomic vs a late manual change.
-        if epoch_now() < MANUAL_OVERRIDE_UNTIL.load(Ordering::Relaxed) {
+        // A replaced or disabled scheduler may have been calculating a sunset
+        // while another thread stopped it. Never apply that stale result.
+        if handle.stop.load(Ordering::Acquire)
+            || epoch_now() < MANUAL_OVERRIDE_UNTIL.load(Ordering::Relaxed)
+        {
             return;
         }
         s.apply_auto(target);

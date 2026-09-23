@@ -65,7 +65,13 @@ The front LED is a PWM channel on the Mac's **SMC**. LuxMini:
    the only privileged part, kept minimal and auditable;
 2. loads a **device profile** that says *how* to address the LED on your specific Mac model
    (the addressing differs across Intel / T2 / Apple Silicon / Studio);
-3. writes the brightness; the app itself stays unprivileged.
+3. verifies the helper protocol and asks you to confirm a real LED fade during
+   first-run setup;
+4. writes the brightness while the app itself stays unprivileged.
+
+If the helper process crashes, LuxMini performs one unattended restart using
+the already installed helper. It never enters a restart loop and does not ask
+for administrator approval again during that recovery.
 
 The per-model addressing, meaning which SMC channel each model uses, lives in a **device profile**
 loaded at runtime rather than hardcoded, so the app stays clean and supports a new model by

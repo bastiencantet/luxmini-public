@@ -8,9 +8,13 @@ use objc2_foundation::NSString;
 use crate::led::Effect;
 use crate::schedule::{AutoDim, Location};
 
+#[cfg(feature = "direct")]
 const SUPPORT_MIN_AGE_SECONDS: i64 = 7 * 24 * 60 * 60;
+#[cfg(feature = "direct")]
 const SUPPORT_REMINDER_SECONDS: i64 = 90 * 24 * 60 * 60;
+#[cfg(feature = "direct")]
 const SUPPORT_MIN_ACTIONS: i64 = 20;
+#[cfg(feature = "direct")]
 const SUPPORT_MAX_PROMPTS: i64 = 2;
 
 #[derive(Clone, Copy, Debug)]
@@ -144,6 +148,24 @@ pub fn save_validated_profile_model(model: &str) {
     set_str("profile.validated_model", Some(model));
 }
 
+/// Keep an interrupted first-run check visible on the next launch.
+pub fn setup_pending_for(model: &str) -> bool {
+    get_str("setup.pending_model").as_deref() == Some(model)
+}
+
+pub fn setup_verified_for(model: &str) -> bool {
+    get_str("setup.verified_model").as_deref() == Some(model)
+}
+
+pub fn mark_setup_pending(model: &str) {
+    set_str("setup.pending_model", Some(model));
+}
+
+pub fn mark_setup_completed(model: &str) {
+    set_str("setup.pending_model", None);
+    set_str("setup.verified_model", Some(model));
+}
+
 /// Local control API (see `crate::api`) — opt-in, off by default, localhost-only.
 /// Toggled from Settings › General; also settable via
 /// `defaults write com.bastiencantet.LuxMini api.enabled -bool true`.
@@ -185,6 +207,7 @@ pub fn mark_telemetry_event_sent(event: &str) {
 
 /// Record one menu session in which the user changed the LED or its automation.
 /// Slider movement is deliberately coalesced by the UI into a single action.
+#[cfg(feature = "direct")]
 pub fn record_meaningful_action(now: i64) {
     ensure_support_first_seen(now);
     let actions = get_int("support.meaningful_actions").saturating_add(1);
@@ -195,6 +218,7 @@ pub fn record_meaningful_action(now: i64) {
 ///
 /// Existing users start their seven-day grace period when this feature first
 /// ships, which prevents an immediate prompt after updating `LuxMini`.
+#[cfg(feature = "direct")]
 pub fn support_prompt_due(now: i64) -> bool {
     ensure_support_first_seen(now);
     if get_bool("support.opted_out")
@@ -209,6 +233,7 @@ pub fn support_prompt_due(now: i64) -> bool {
 }
 
 /// Record a dismissed prompt and schedule the final possible reminder.
+#[cfg(feature = "direct")]
 pub fn defer_support_prompt(now: i64) {
     let count = get_int("support.prompt_count").saturating_add(1);
     set_int("support.prompt_count", count);
@@ -220,10 +245,12 @@ pub fn defer_support_prompt(now: i64) {
 
 /// Permanently suppress automatic support prompts. The permanent Support menu
 /// item remains available.
+#[cfg(feature = "direct")]
 pub fn suppress_support_prompts() {
     set_bool("support.opted_out", true);
 }
 
+#[cfg(feature = "direct")]
 fn ensure_support_first_seen(now: i64) {
     if get_int("support.first_seen_at") == 0 {
         set_int("support.first_seen_at", now);

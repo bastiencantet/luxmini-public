@@ -49,6 +49,8 @@ struct TokenResponse {
 #[derive(Deserialize)]
 struct ProfileResponse {
     model_id: String,
+    #[serde(default)]
+    candidate_slot: Option<u8>,
     key: String,
     format: String,
     max: u8,
@@ -57,12 +59,31 @@ struct ProfileResponse {
 #[derive(Serialize)]
 struct ValidationRequest<'a> {
     model_id: &'a str,
+    candidate_slot: u8,
     outcome: &'a str,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateProfile {
+    pub slot: u8,
+    pub total: u8,
+    pub profile: DeviceProfile,
+}
+
+#[cfg(feature = "field-test")]
+pub enum RemoteProfileTest {
+    ApprovedMatchesCache,
+    ApprovedDiffersFromCache,
+    CandidateOnly,
+}
+
 fn profile_path() -> Option<PathBuf> {
+    #[cfg(feature = "field-test")]
+    const PROFILE_PATH: &str = "Library/Application Support/LuxMini Field Test/profile";
+    #[cfg(not(feature = "field-test"))]
+    const PROFILE_PATH: &str = "Library/Application Support/LuxMini/profile";
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Application Support/LuxMini/profile"))
+    Some(PathBuf::from(home).join(PROFILE_PATH))
 }
 
 impl DeviceProfile {
@@ -141,10 +162,51 @@ impl DeviceProfile {
         Self::fetch_from(model, PROFILE_URL)
     }
 
+    /// Check the production profile endpoint without changing the local cache.
+    #[cfg(feature = "field-test")]
+    pub fn test_remote_profile() -> Result<RemoteProfileTest, &'static str> {
+        let model = crate::compat::get_mac_model();
+        if let Some(remote) = Self::fetch(&model) {
+            return Ok(if Self::load_cached().as_ref() == Some(&remote) {
+                RemoteProfileTest::ApprovedMatchesCache
+            } else {
+                RemoteProfileTest::ApprovedDiffersFromCache
+            });
+        }
+        if Self::fetch_candidate(&model, 1).is_some() {
+            return Ok(RemoteProfileTest::CandidateOnly);
+        }
+        Err("Neither an approved profile nor candidate 1 could be fetched for this Mac")
+    }
+
     /// Fetch a pending profile for the explicit visual hardware test. Candidate
     /// profiles are never cached implicitly.
-    pub fn fetch_candidate(model: &str) -> Option<Self> {
-        Self::fetch_from(model, CANDIDATE_PROFILE_URL)
+    pub fn fetch_candidate(model: &str, slot: u8) -> Option<CandidateProfile> {
+        if !(1..=3).contains(&slot) {
+            return None;
+        }
+        let agent = Self::agent();
+        let token = Self::token(&agent, model)?;
+        let response = agent
+            .get(CANDIDATE_PROFILE_URL)
+            .query("model_id", model)
+            .query("candidate_slot", &slot.to_string())
+            .set("Authorization", &format!("Bearer {token}"))
+            .call()
+            .ok()?;
+        let total = response
+            .header("X-LuxMini-Candidate-Count")
+            .and_then(|value| value.parse::<u8>().ok())?
+            .clamp(1, 3);
+        let response: ProfileResponse = response.into_json().ok()?;
+        if response.candidate_slot != Some(slot) {
+            return None;
+        }
+        Some(CandidateProfile {
+            slot,
+            total,
+            profile: Self::from_response(&response, model)?,
+        })
     }
 
     /// Return a locally cached profile without contacting the API.
@@ -163,8 +225,10 @@ impl DeviceProfile {
 
     /// Send an anonymous validation outcome. This is best-effort and contains
     /// only the hardware model and the answer; no serial or installation ID.
-    pub fn report_validation(model: &str, outcome: &str) -> bool {
-        if !matches!(outcome, "yes" | "no" | "technical_error") {
+    pub fn report_validation(model: &str, slot: u8, outcome: &str) -> bool {
+        if !(1..=3).contains(&slot)
+            || !matches!(outcome, "yes" | "no" | "selected" | "technical_error")
+        {
             return false;
         }
         let agent = Self::agent();
@@ -176,6 +240,7 @@ impl DeviceProfile {
             .set("Authorization", &format!("Bearer {token}"))
             .send_json(ValidationRequest {
                 model_id: model,
+                candidate_slot: slot,
                 outcome,
             })
             .is_ok()
@@ -197,14 +262,25 @@ impl DeviceProfile {
             std::fs::create_dir_all(parent)?;
         }
         let format = if self.replicate { "vv" } else { "v0" };
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?;
-        writeln!(file, "# model {model}")?;
-        writeln!(file, "{} {format} {}", self.key, self.max)
+        // A crash while replacing a profile must not leave the only known-good
+        // cached profile truncated. Rename a complete file on the same volume.
+        let temporary = path.with_extension(format!("pending-{}", std::process::id()));
+        let result = (|| {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&temporary)?;
+            writeln!(file, "# model {model}")?;
+            writeln!(file, "{} {format} {}", self.key, self.max)?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        result
     }
 
     /// Parse a single `KEY FORMAT MAX` profile line. Pure (no filesystem), so it
@@ -213,7 +289,7 @@ impl DeviceProfile {
         let mut it = line.split_whitespace();
         let key = it.next()?.to_string();
         // SMC keys are exactly 4 ASCII characters.
-        if key.len() != 4 || !key.is_ascii() {
+        if key.len() != 4 || !key.bytes().all(|byte| byte.is_ascii_graphic()) {
             return None;
         }
         let replicate = it.next() != Some("v0");
@@ -289,6 +365,7 @@ mod tests {
         assert!(DeviceProfile::parse_line("ABC").is_none()); // too short
         assert!(DeviceProfile::parse_line("ABCDE").is_none()); // too long
         assert!(DeviceProfile::parse_line("ÀBCD").is_none()); // non-ASCII (2-byte À)
+        assert!(DeviceProfile::parse_line("AB\0D vv 255").is_none()); // control byte
         assert!(DeviceProfile::parse_line("").is_none());
     }
 
@@ -353,6 +430,7 @@ mod tests {
     fn validates_api_response_for_the_requested_model() {
         let valid = ProfileResponse {
             model_id: "Mac16,9".into(),
+            candidate_slot: None,
             key: "ABCD".into(),
             format: "vv".into(),
             max: 255,
@@ -361,6 +439,7 @@ mod tests {
 
         let mismatched = ProfileResponse {
             model_id: "Mac13,1".into(),
+            candidate_slot: None,
             key: "ABCD".into(),
             format: "vv".into(),
             max: 255,

@@ -6,10 +6,7 @@ use std::sync::Mutex;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
-
-// Sparkle links into the main tray binary only, not the setuid led-helper.
-#[link(name = "Sparkle", kind = "framework")]
-extern "C" {}
+use objc2_foundation::NSString;
 
 // Keep the controller alive for the app's lifetime; the Mutex only satisfies `Send`.
 static UPDATER: Mutex<Option<Holder>> = Mutex::new(None);
@@ -23,8 +20,11 @@ unsafe impl Send for Holder {}
 /// Instantiate the Sparkle updater controller once at startup and keep it alive
 /// for the app's lifetime (no-op if the framework class is unavailable).
 pub fn init() {
+    if !load_framework() {
+        return;
+    }
     let Some(cls) = AnyClass::get(c"SPUStandardUpdaterController") else {
-        eprintln!("sparkle: framework class not found (dev mode without bundle?)");
+        eprintln!("sparkle: updater class not found after framework load");
         return;
     };
 
@@ -53,6 +53,47 @@ pub fn init() {
         }
         None => eprintln!("sparkle: failed to init updater"),
     }
+}
+
+/// Load the signed framework before looking up its Objective-C classes. A link
+/// declaration with no referenced symbols is stripped by the linker, leaving
+/// the framework on disk but its classes unavailable at runtime.
+fn load_framework() -> bool {
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.join("Frameworks/Sparkle.framework")));
+    #[cfg(debug_assertions)]
+    let bundled = bundled.filter(|path| path.is_dir()).or_else(|| {
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/Sparkle.framework"))
+    });
+    let Some(path) = bundled.filter(|path| path.is_dir()) else {
+        eprintln!("sparkle: framework not found in the app bundle");
+        return false;
+    };
+    let Some(bundle_class) = AnyClass::get(c"NSBundle") else {
+        eprintln!("sparkle: NSBundle unavailable");
+        return false;
+    };
+    let path = NSString::from_str(&path.to_string_lossy());
+    // SAFETY: bundleWithPath: accepts an NSString path and returns a nullable
+    // autoreleased NSBundle. load returns whether executable code was loaded.
+    unsafe {
+        let bundle: *mut AnyObject = objc2::msg_send![bundle_class, bundleWithPath: &*path];
+        if bundle.is_null() {
+            eprintln!("sparkle: framework bundle unavailable");
+            return false;
+        }
+        let loaded: bool = objc2::msg_send![bundle, load];
+        if !loaded {
+            eprintln!("sparkle: framework could not be loaded");
+        }
+        loaded
+    }
+}
+
+#[cfg(debug_assertions)]
+pub fn framework_loads() -> bool {
+    load_framework() && AnyClass::get(c"SPUStandardUpdaterController").is_some()
 }
 
 /// Trigger a visible update check (Sparkle's native "update available" / "up to date" UI).
