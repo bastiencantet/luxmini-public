@@ -1,6 +1,6 @@
 [package]
 name = "mac-led-tray"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.88"
 description = "LuxMini — turn off, dim, or schedule the front LED on your Mac, from the menu bar."
@@ -15,6 +15,11 @@ default-run = "mac-led-tray"
 # setuid helper, so it only builds from this repo. Build from source (see README).
 publish = false
 
+[features]
+default = ["direct"]
+direct = []
+field-test = []
+
 [[bin]]
 name = "mac-led-tray"
 path = "src/main.rs"
@@ -28,12 +33,17 @@ name = "luxmini"
 path = "src/bin/cli.rs"
 
 [dependencies]
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
+    "NSArray",
     "NSString",
     "NSGeometry",
+    "NSDate",
+    "NSTimer",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSAlert",
@@ -60,6 +70,8 @@ objc2-app-kit = { version = "0.3", features = [
     "NSTableView",
     "NSText",
     "NSTextField",
+    "NSToolbar",
+    "NSToolbarItem",
     "NSView",
     "NSWindow",
 ] }
@@ -68,6 +80,10 @@ objc2-app-kit = { version = "0.3", features = [
 strip = true
 lto = true
 codegen-units = 1
+
+# Keep this standalone application independent when checked out inside another
+# Cargo workspace, as is the case for local Codex worktrees.
+[workspace]
 
 # Shared by both binaries (stable since Rust 1.74).
 [lints.clippy]

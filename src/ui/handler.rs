@@ -1,22 +1,27 @@
 use crate::launch_at_login;
-use crate::led::{read_state, with_state, Effect, LedState, STATE};
+use crate::led::{read_status, with_state, Effect, LedState, STATE};
 use crate::preferences;
 use crate::schedule::{self, AutoDim};
+#[cfg(all(feature = "direct", not(feature = "field-test")))]
 use crate::sparkle;
 use crate::ui::settings::{self, SettingsRefs};
 use crate::ui::tray::update_tray_icon;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAlert, NSApplication, NSMenuItem, NSSlider, NSStatusItem, NSSwitch, NSTextField, NSView,
+    NSAlert, NSApplication, NSMenuItem, NSSlider, NSStatusItem, NSSwitch, NSTextField,
+    NSToolbarItem,
 };
-use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
+use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString, NSTimer};
 use std::cell::{Cell, RefCell};
+#[cfg(feature = "direct")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const FIRST_ALERT_BUTTON: isize = 1000;
+#[cfg(feature = "direct")]
 const THIRD_ALERT_BUTTON: isize = 1002;
+#[cfg(feature = "direct")]
 const SUPPORT_URL: &str = "https://www.buymeacoffee.com/bastiencantet";
 
 pub struct UiRefs {
@@ -49,6 +54,13 @@ define_class!(
     pub struct Handler;
 
     impl Handler {
+        #[unsafe(method(helperFeedbackTick:))]
+        fn helper_feedback_tick(&self, _timer: &AnyObject) {
+            if self.show_control_error_if_any() {
+                self.refresh_ui();
+            }
+        }
+
         #[unsafe(method(switchToggled:))]
         fn switch_toggled(&self, sender: &AnyObject) {
             // SAFETY: sender is an NSControl (the NSSwitch) responding to -state, which returns an
@@ -172,9 +184,12 @@ define_class!(
         // closed, so it never interrupts an LED adjustment.
         #[unsafe(method(menuDidClose:))]
         fn menu_did_close(&self, _menu: &AnyObject) {
-            if self.ivars().menu_had_manual_action.replace(false) {
-                preferences::record_meaningful_action(unix_timestamp());
-                Self::maybe_show_support_prompt();
+            #[cfg(feature = "direct")]
+            {
+                if self.ivars().menu_had_manual_action.replace(false) {
+                    preferences::record_meaningful_action(unix_timestamp());
+                    Self::maybe_show_support_prompt();
+                }
             }
         }
 
@@ -225,6 +240,7 @@ define_class!(
             open_feedback();
         }
 
+        #[cfg(feature = "direct")]
         #[unsafe(method(supportLuxMini:))]
         fn support_luxmini(&self, _sender: &AnyObject) {
             // An explicit support click is stronger intent than an automatic
@@ -255,51 +271,142 @@ define_class!(
             settings::save(self);
         }
 
-        // NSTableViewDataSource: number of sidebar rows.
-        #[unsafe(method(numberOfRowsInTableView:))]
-        fn number_of_rows(&self, _table: &AnyObject) -> isize {
-            self.ivars()
-                .settings
-                .borrow()
-                .as_ref()
-                .and_then(|r| isize::try_from(r.row_views.len()).ok())
-                .unwrap_or(0)
+        #[unsafe(method(saveGeneralSettings:))]
+        fn save_general_settings(&self, sender: &AnyObject) {
+            settings::save_general(self, sender);
         }
 
-        // NSTableViewDelegate: the prebuilt cell view for a sidebar row.
-        #[unsafe(method(tableView:viewForTableColumn:row:))]
-        fn view_for_row(&self, _table: &AnyObject, _column: &AnyObject, row: isize) -> *mut NSView {
-            let refs = self.ivars().settings.borrow();
-            let view = refs.as_ref().and_then(|r| {
-                usize::try_from(row)
-                    .ok()
-                    .and_then(|i| r.row_views.get(i))
-                    .cloned()
-            });
-            // AppKit expects a +0 (autoreleased) view here, or nil.
-            view.map_or(std::ptr::null_mut(), Retained::autorelease_return)
+        #[unsafe(method(toolbarDefaultItemIdentifiers:))]
+        fn toolbar_default_items(&self, _toolbar: &AnyObject) -> *mut NSArray<NSString> {
+            settings::toolbar_identifiers()
         }
 
-        // NSTableViewDelegate: a sidebar row was selected — switch the content pane.
-        #[unsafe(method(tableViewSelectionDidChange:))]
-        fn table_selection_did_change(&self, notification: &AnyObject) {
-            // SAFETY: -object is the NSTableView; -selectedRow returns its NSInteger.
-            let row: isize = unsafe {
-                let table: *mut AnyObject = msg_send![notification, object];
-                if table.is_null() {
-                    return;
-                }
-                msg_send![table, selectedRow]
+        #[unsafe(method(toolbarAllowedItemIdentifiers:))]
+        fn toolbar_allowed_items(&self, _toolbar: &AnyObject) -> *mut NSArray<NSString> {
+            settings::toolbar_identifiers()
+        }
+
+        #[unsafe(method(toolbarSelectableItemIdentifiers:))]
+        fn toolbar_selectable_items(&self, _toolbar: &AnyObject) -> *mut NSArray<NSString> {
+            settings::toolbar_identifiers()
+        }
+
+        #[unsafe(method(toolbar:itemForItemIdentifier:willBeInsertedIntoToolbar:))]
+        fn toolbar_item(
+            &self,
+            _toolbar: &AnyObject,
+            identifier: &NSString,
+            _inserted: bool,
+        ) -> *mut NSToolbarItem {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return std::ptr::null_mut();
             };
-            if row >= 0 {
-                settings::select_section(self, row);
-            }
+            settings::toolbar_item(self, mtm, identifier)
+        }
+
+        #[unsafe(method(selectSettingsPane:))]
+        fn select_settings_pane(&self, sender: &AnyObject) {
+            // SAFETY: sender is the NSToolbarItem built by settings::toolbar_item.
+            let section: isize = unsafe { msg_send![sender, tag] };
+            settings::select_section(self, section);
         }
 
         // Settings "📍 Detect my location" button — kick off a CoreLocation request.
         #[unsafe(method(detectLocation:))]
         fn detect_location(&self, _sender: &AnyObject) {
             crate::location::request(self);
+        }
+
+        #[unsafe(method(detectLedAccess:))]
+        fn detect_led_access(&self, _sender: &AnyObject) {
+            self.run_isolated_setup(crate::onboarding::run_manual);
+        }
+
+        #[unsafe(method(runSetupTest:))]
+        fn run_setup_test(&self, _sender: &AnyObject) {
+            self.retry_led_setup();
+        }
+
+        #[cfg(feature = "field-test")]
+        #[unsafe(method(checkHelperTest:))]
+        fn check_helper_test(&self, _sender: &AnyObject) {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            match with_state(LedState::test_helper_connection) {
+                Some(Ok(())) => {
+                    field_test_alert(
+                        mtm,
+                        "Helper check passed",
+                        "The root helper answered and the current SMC profile returned two bytes. Run the visual fade test to confirm the physical LED.",
+                        None,
+                    );
+                }
+                Some(Err(error)) => {
+                    field_test_alert(mtm, "Helper check failed", &error.to_string(), None);
+                }
+                None => {
+                    field_test_alert(mtm, "Helper check failed", "LED state is unavailable.", None);
+                }
+            }
+            self.refresh_ui();
+        }
+
+        #[cfg(feature = "field-test")]
+        #[unsafe(method(checkRemoteProfileTest:))]
+        fn check_remote_profile_test(&self, _sender: &AnyObject) {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            match crate::profile::DeviceProfile::test_remote_profile() {
+                Ok(crate::profile::RemoteProfileTest::ApprovedMatchesCache) => {
+                    field_test_alert(mtm, "Profile fetch passed", "The production API returned a valid profile for this Mac. It matches the cached profile. No LED setting or cache was changed.", None);
+                }
+                Ok(crate::profile::RemoteProfileTest::ApprovedDiffersFromCache) => {
+                    field_test_alert(mtm, "Profile fetch passed", "The production API returned a valid profile for this Mac, but it differs from the locally cached profile. No LED setting or cache was changed. Verify the physical LED before selecting a profile.", None);
+                }
+                Ok(crate::profile::RemoteProfileTest::CandidateOnly) => {
+                    field_test_alert(mtm, "Candidate profile found", "No approved profile was served, but candidate 1 is available for an explicit visual test. No LED setting or cache was changed.", None);
+                }
+                Err(error) => {
+                    field_test_alert(mtm, "Profile fetch failed", error, None);
+                }
+            }
+        }
+
+        #[cfg(feature = "field-test")]
+        #[unsafe(method(testHelperRestart:))]
+        fn test_helper_restart(&self, _sender: &AnyObject) {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            if !field_test_alert(
+                mtm,
+                "Test helper recovery?",
+                "This stops the current effect, terminates the helper, and verifies one unattended restart. The automatic restart allowance is then used until LuxMini Field Test is relaunched.",
+                Some("Run test"),
+            ) {
+                return;
+            }
+            match with_state(LedState::test_helper_restart) {
+                Some(Ok(())) => {
+                    let note = with_state(LedState::take_control_error).flatten();
+                    field_test_alert(
+                        mtm,
+                        "Helper recovery passed",
+                        note.as_deref().unwrap_or("The helper restarted without another administrator prompt and restored the LED value."),
+                        None,
+                    );
+                }
+                Some(Err(error)) => {
+                    let _ = with_state(LedState::take_control_error);
+                    field_test_alert(mtm, "Helper recovery failed", &error.to_string(), None);
+                }
+                None => {
+                    field_test_alert(mtm, "Helper recovery failed", "LED state is unavailable.", None);
+                }
+            }
+            self.refresh_ui();
         }
 
         // CLLocationManagerDelegate: a fix arrived.
@@ -329,6 +436,7 @@ define_class!(
             true
         }
 
+        #[cfg(all(feature = "direct", not(feature = "field-test")))]
         #[unsafe(method(checkForUpdates:))]
         fn check_for_updates(&self, _sender: &AnyObject) {
             sparkle::check_for_updates();
@@ -363,6 +471,19 @@ impl Handler {
         *self.ivars().ui.borrow_mut() = Some(ui);
     }
 
+    pub fn start_helper_feedback_timer(&self) -> Retained<NSTimer> {
+        // SAFETY: the selector is implemented by Handler and receives the timer.
+        unsafe {
+            NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+                2.0,
+                self,
+                sel!(helperFeedbackTick:),
+                None,
+                true,
+            )
+        }
+    }
+
     /// Show or hide the menu-bar status item (set-and-forget mode).
     pub fn set_icon_hidden(&self, hidden: bool) {
         let ui_ref = self.ivars().ui.borrow();
@@ -384,7 +505,11 @@ impl Handler {
     }
 
     pub fn refresh_ui(&self) {
-        let (is_on, brightness) = read_state();
+        settings::refresh_led(self);
+        let status = read_status();
+        let is_on = status.is_on;
+        let brightness = status.brightness;
+        let helper_ready = status.helper_ready;
         let ui_ref = self.ivars().ui.borrow();
         let Some(ui) = ui_ref.as_ref() else { return };
         let target_state = isize::from(is_on);
@@ -396,25 +521,76 @@ impl Handler {
         ui.slider.setDoubleValue(f64::from(brightness));
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0..=100
         let percent = ((f64::from(brightness) / 255.0) * 100.0).round() as u32;
-        let status = if is_on { "ON" } else { "OFF" };
+        let status = if !helper_ready {
+            "ERROR"
+        } else if is_on {
+            "ON"
+        } else {
+            "OFF"
+        };
         ui.status_label.setStringValue(&NSString::from_str(status));
+        let percent_text = if helper_ready {
+            format!("{percent}%")
+        } else {
+            "!".to_owned()
+        };
         ui.percent_label
-            .setStringValue(&NSString::from_str(&format!("{percent}%")));
+            .setStringValue(&NSString::from_str(&percent_text));
         update_tray_icon(&ui.status_item, is_on, brightness);
     }
 
-    pub fn show_control_error_if_any() -> bool {
+    pub fn show_control_error_if_any(&self) -> bool {
         let error = with_state(LedState::take_control_error).flatten();
         if let Some(error) = error {
-            show_led_control_error(&error);
+            if show_led_control_error(&error) {
+                self.retry_led_setup();
+            }
             true
         } else {
             false
         }
     }
 
+    fn retry_led_setup(&self) {
+        self.run_isolated_setup(|mtm, model| {
+            crate::welcome::run(mtm, model, crate::compat::is_pending(model))
+        });
+    }
+
+    fn run_isolated_setup(&self, setup: impl FnOnce(MainThreadMarker, &str) -> Option<LedState>) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        schedule::stop();
+        let mut previous_state = match STATE.lock() {
+            Ok(mut state) => state.take(),
+            Err(error) => {
+                eprintln!("LED state lock poisoned before setup: {error}");
+                schedule::restart();
+                return;
+            }
+        };
+        let previous_preset = previous_state
+            .as_mut()
+            .map(LedState::pause_for_profile_discovery);
+        let model = crate::compat::get_mac_model();
+        let mut next_state = setup(mtm, &model).or(previous_state);
+        if let (Some(state), Some(preset)) = (next_state.as_mut(), previous_preset) {
+            if state.helper_ready() {
+                state.apply_preset(&preset);
+            }
+        }
+        if let Ok(mut state) = STATE.lock() {
+            *state = next_state;
+        } else {
+            eprintln!("LED state lock poisoned after setup");
+        }
+        schedule::restart();
+        self.refresh_ui();
+    }
+
     fn finish_led_action(&self) {
-        let failed = Self::show_control_error_if_any();
+        let failed = self.show_control_error_if_any();
         if !failed {
             self.note_meaningful_action();
         }
@@ -425,6 +601,7 @@ impl Handler {
         self.ivars().menu_had_manual_action.set(true);
     }
 
+    #[cfg(feature = "direct")]
     fn maybe_show_support_prompt() {
         let now = unix_timestamp();
         if !preferences::support_prompt_due(now) {
@@ -547,9 +724,9 @@ impl Handler {
     }
 }
 
-fn show_led_control_error(detail: &str) {
+fn show_led_control_error(detail: &str) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
-        return;
+        return false;
     };
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
@@ -570,15 +747,44 @@ fn show_led_control_error(detail: &str) {
     );
     alert.setInformativeText(&NSString::from_str(&message));
     alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s(
+        "Check LED Setup",
+        "Vérifier la configuration LED",
+    )));
+    alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s(
         "Send Feedback",
         "Envoyer un retour",
     )));
-    alert.addButtonWithTitle(&NSString::from_str("OK"));
-    if alert.runModal() == FIRST_ALERT_BUTTON {
+    alert.addButtonWithTitle(&NSString::from_str(crate::i18n::s("Later", "Plus tard")));
+    let response = alert.runModal();
+    if response == FIRST_ALERT_BUTTON + 1 {
         open_feedback();
     }
+    response == FIRST_ALERT_BUTTON
 }
 
+#[cfg(feature = "field-test")]
+fn field_test_alert(
+    mtm: MainThreadMarker,
+    title: &str,
+    detail: &str,
+    confirm: Option<&str>,
+) -> bool {
+    let app = NSApplication::sharedApplication(mtm);
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str(title));
+    alert.setInformativeText(&NSString::from_str(detail));
+    if let Some(label) = confirm {
+        alert.addButtonWithTitle(&NSString::from_str(label));
+        alert.addButtonWithTitle(&NSString::from_str("Cancel"));
+    } else {
+        alert.addButtonWithTitle(&NSString::from_str("OK"));
+    }
+    alert.runModal() == FIRST_ALERT_BUTTON
+}
+
+#[cfg(feature = "direct")]
 fn unix_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

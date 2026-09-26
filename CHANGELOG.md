@@ -6,6 +6,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-23
+
+### Added
+
+- A native first-run setup that verifies the production profile, installs and
+  handshakes with the privileged helper, and asks for a visual confirmation of
+  a real LED fade before completing setup.
+- Device-specific setup artwork for the current Mac mini, earlier Apple silicon
+  Mac mini, and Mac Studio, with the pictured LED following the physical fade.
+- A private field-test build with checks for the production profile, helper
+  access, visual profile discovery, settings hit targets, and one forced helper
+  restart.
+- A bounded LED-access detector for pending and manually retested Macs. It tries
+  at most three server-allowlisted LED profiles with numbered pulse patterns,
+  restores the exact previous LED bytes after every attempt, and activates only
+  a profile the user confirms visually.
+- An Advanced settings section with a manual Detect LED Access action, including
+  support for retesting an already known Mac when normal controls do not affect
+  its front LED.
+
+### Changed
+
+- Redesigned Settings with native macOS controls, a conventional sidebar, and
+  clearer General, Automation, Effects, Advanced, and About sections.
+- Setup keeps the real LED and the matching device artwork fading until the user
+  confirms the result, instead of requiring a timed retry.
+- The helper protocol now verifies both the current protocol version and root
+  privileges before LED controls become available.
+
+### Fixed
+
+- A crashed helper is detected and restarted once without another administrator
+  prompt. Repeated or non-transport failures remain visible instead of creating
+  a restart loop.
+- Cancelling the administrator prompt no longer leaves setup in an ambiguous
+  state; LuxMini explains the failure and offers a safe retry.
+- Settings actions, including Save, now receive pointer clicks across their full
+  visible bounds on current macOS releases.
+- LED write failures no longer update the UI as if the requested hardware state
+  had succeeded, and active effects stop after a failed write.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added
@@ -100,7 +141,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Effects submenu (blink / pulse / SOS / strobe), launch-at-login, and Sparkle
   auto-updates.
 
-[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.1...v0.3.2

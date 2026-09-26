@@ -13,7 +13,10 @@ use std::sync::Once;
 
 use objc2::runtime::{AnyClass, AnyObject};
 
+#[cfg(not(feature = "field-test"))]
 const BUNDLE_ID: &str = "com.bastiencantet.luxmini";
+#[cfg(feature = "field-test")]
+const BUNDLE_ID: &str = "com.bastiencantet.luxmini.fieldtest";
 const RTLD_NOW: c_int = 2;
 
 /// Whether the app is currently registered to launch at login.

@@ -33,11 +33,11 @@ pub fn run_effect(effect: Effect, stop: Arc<AtomicBool>) {
 
 fn run_blink(period_ms: u64, stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
-        write_raw(0xff);
+        write_raw(0xff, stop);
         if !sleep_cancellable(period_ms, stop) {
             return;
         }
-        write_raw(0x00);
+        write_raw(0x00, stop);
         if !sleep_cancellable(period_ms, stop) {
             return;
         }
@@ -53,7 +53,7 @@ fn run_pulse(stop: &AtomicBool) {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         // sin()*0.5+0.5 in [0,1], *255 in [0,255]
         let val = ((phase.sin() * 0.5 + 0.5) * 255.0).round() as u8;
-        write_raw(val);
+        write_raw(val, stop);
         std::thread::sleep(Duration::from_millis(step_ms));
         // t stays in 0..steps (< 50), so the add never actually wraps.
         t = t.wrapping_add(1) % steps;
@@ -68,11 +68,11 @@ fn run_sos(stop: &AtomicBool) {
     let word_gap = dot * 7;
 
     let pulse = |on_ms: u64, off_ms: u64, stop: &AtomicBool| -> bool {
-        write_raw(0xff);
+        write_raw(0xff, stop);
         if !sleep_cancellable(on_ms, stop) {
             return false;
         }
-        write_raw(0x00);
+        write_raw(0x00, stop);
         sleep_cancellable(off_ms, stop)
     };
 

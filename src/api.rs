@@ -12,8 +12,8 @@
 //! connection, then closes.
 //!
 //! Routes:
-//! - `GET /healthz` → `{"status":"ok"}`
-//! - `GET /led` → `{"on":bool,"brightness":0..255,"max":255}`
+//! - `GET /healthz` → status 200 when the helper is ready, 503 otherwise.
+//! - `GET /led` → state and helper readiness.
 //! - `POST /led` → apply `{"on":bool}` / `{"brightness":0..255}` /
 //!   `{"effect":"blink|blinkfast|pulse|sos|strobe|none"}`, then return the state.
 
@@ -151,29 +151,60 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     }
 
     match (method.as_str(), path.as_str()) {
-        ("GET", "/healthz") => respond(&mut stream, 200, r#"{"status":"ok"}"#),
-        ("GET", "/led") => respond(&mut stream, 200, &led_json()),
-        ("POST", "/led") => {
-            if apply(&body) {
-                respond(&mut stream, 200, &led_json())
+        ("GET", "/healthz") => {
+            if led::helper_available() {
+                respond(&mut stream, 200, r#"{"status":"ok"}"#)
             } else {
-                respond(&mut stream, 400, r#"{"error":"invalid command"}"#)
+                respond(
+                    &mut stream,
+                    503,
+                    r#"{"status":"degraded","helper":"unavailable"}"#,
+                )
             }
         }
+        ("GET", "/led") => respond(&mut stream, 200, &led_json()),
+        ("POST", "/led") => match apply(&body) {
+            ApplyResult::Applied => respond(&mut stream, 200, &led_json()),
+            ApplyResult::Invalid => respond(&mut stream, 400, r#"{"error":"invalid command"}"#),
+            ApplyResult::Unavailable => {
+                respond(&mut stream, 503, r#"{"error":"led helper unavailable"}"#)
+            }
+        },
         _ => respond(&mut stream, 404, r#"{"error":"not found"}"#),
     }
 }
 
 fn led_json() -> String {
-    let (on, brightness) = led::read_state();
-    format!(r#"{{"on":{on},"brightness":{brightness},"max":255}}"#)
+    let status = led::read_status();
+    let on = status.is_on;
+    let brightness = status.brightness;
+    let helper_ready = status.helper_ready;
+    format!(r#"{{"on":{on},"brightness":{brightness},"max":255,"helper_ready":{helper_ready}}}"#)
 }
 
-/// Apply a `POST /led` body. Minimal, dependency-free extraction for a fixed,
-/// tiny shape — not a general JSON parser. `effect` takes precedence, then
-/// `on`, then `brightness`.
-fn apply(body: &str) -> bool {
-    if let Some(effect) = json_str(body, "effect") {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LedRequest {
+    Effect(Option<Effect>),
+    On(bool),
+    Brightness(u8),
+    OnAndBrightness(bool, u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApplyResult {
+    Applied,
+    Invalid,
+    Unavailable,
+}
+
+/// Parse a small `POST /led` command without touching the global LED state.
+/// An effect takes precedence; when both on and brightness are supplied, both
+/// commands are applied in that order for compatibility with existing clients.
+fn parse_request(body: &str) -> Option<LedRequest> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let object = value.as_object()?;
+    if let Some(effect) = object.get("effect") {
+        let effect = effect.as_str()?.to_ascii_lowercase();
         let parsed = match effect.as_str() {
             "blink" => Some(Effect::Blink),
             "blinkfast" | "blink_fast" => Some(Effect::BlinkFast),
@@ -181,59 +212,57 @@ fn apply(body: &str) -> bool {
             "sos" => Some(Effect::Sos),
             "strobe" => Some(Effect::Strobe),
             "none" | "off" | "clear" | "stop" => None,
-            _ => return false,
+            _ => return None,
         };
-        led::with_state(|s| match parsed {
-            Some(effect) => s.start_effect(effect),
-            None => s.clear_effect(),
-        });
-        return true;
+        return Some(LedRequest::Effect(parsed));
     }
-    let mut applied = false;
-    if let Some(on) = json_bool(body, "on") {
-        led::with_state(|s| s.set_on(on));
-        applied = true;
+    let on = object
+        .get("on")
+        .map_or(Some(None), |value| value.as_bool().map(Some))?;
+    let brightness = object.get("brightness").map_or(Some(None), |value| {
+        value.as_u64().and_then(|n| u8::try_from(n).ok()).map(Some)
+    })?;
+    match (on, brightness) {
+        (Some(on), Some(brightness)) => Some(LedRequest::OnAndBrightness(on, brightness)),
+        (Some(on), None) => Some(LedRequest::On(on)),
+        (None, Some(brightness)) => Some(LedRequest::Brightness(brightness)),
+        (None, None) => None,
     }
-    if let Some(value) = json_u8(body, "brightness") {
-        led::with_state(|s| s.set_brightness(value));
-        applied = true;
-    }
-    applied
 }
 
-/// Slice of `body` immediately after `"<key>":`, whitespace-trimmed. Uses
-/// `str::get` throughout so a malformed body can never panic on an index.
-fn json_after<'a>(body: &'a str, key: &str) -> Option<&'a str> {
-    let needle = format!("\"{key}\"");
-    let pos = body.find(&needle)?;
-    let rest = body.get(pos + needle.len()..)?.trim_start();
-    Some(rest.strip_prefix(':')?.trim_start())
-}
-
-fn json_bool(body: &str, key: &str) -> Option<bool> {
-    let rest = json_after(body, key)?;
-    if rest.starts_with("true") {
-        Some(true)
-    } else if rest.starts_with("false") {
-        Some(false)
+fn apply(body: &str) -> ApplyResult {
+    let Some(command) = parse_request(body) else {
+        return ApplyResult::Invalid;
+    };
+    let succeeded = led::with_state(|state| match command {
+        LedRequest::Effect(Some(effect)) => {
+            state.start_effect(effect);
+            !state.control_failed()
+        }
+        LedRequest::Effect(None) => {
+            state.clear_effect();
+            !state.control_failed()
+        }
+        LedRequest::On(on) => {
+            state.set_on(on);
+            !state.control_failed()
+        }
+        LedRequest::Brightness(value) => {
+            state.set_brightness(value);
+            !state.control_failed()
+        }
+        LedRequest::OnAndBrightness(on, value) => {
+            state.set_on(on);
+            let first_succeeded = !state.control_failed();
+            state.set_brightness(value);
+            first_succeeded && !state.control_failed()
+        }
+    });
+    if succeeded == Some(true) {
+        ApplyResult::Applied
     } else {
-        None
+        ApplyResult::Unavailable
     }
-}
-
-fn json_u8(body: &str, key: &str) -> Option<u8> {
-    let rest = json_after(body, key)?;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    digits
-        .parse::<u16>()
-        .ok()
-        .and_then(|n| u8::try_from(n).ok())
-}
-
-fn json_str(body: &str, key: &str) -> Option<String> {
-    let inner = json_after(body, key)?.strip_prefix('"')?;
-    let end = inner.find('"')?;
-    Some(inner.get(..end)?.to_ascii_lowercase())
 }
 
 fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
@@ -242,6 +271,7 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<(
         401 => "Unauthorized",
         413 => "Content Too Large",
         404 => "Not Found",
+        503 => "Service Unavailable",
         _ => "OK",
     };
     let response = format!(
@@ -255,55 +285,66 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply, json_bool, json_str, json_u8};
-
-    #[test]
-    fn parses_bool() {
-        assert_eq!(json_bool(r#"{"on":true}"#, "on"), Some(true));
-        assert_eq!(json_bool(r#"{ "on" : false }"#, "on"), Some(false));
-        assert_eq!(json_bool(r#"{"on":1}"#, "on"), None);
-        assert_eq!(json_bool("{}", "on"), None);
-    }
+    use super::{apply, parse_request, ApplyResult, LedRequest};
 
     #[test]
     fn parses_brightness_and_rejects_out_of_range_values() {
-        assert_eq!(json_u8(r#"{"brightness":128}"#, "brightness"), Some(128));
-        assert_eq!(json_u8(r#"{"brightness":999}"#, "brightness"), None);
-        assert_eq!(json_u8(r#"{"brightness":0}"#, "brightness"), Some(0));
-        assert_eq!(json_u8("{}", "brightness"), None);
+        assert_eq!(
+            parse_request(r#"{"brightness":128}"#),
+            Some(LedRequest::Brightness(128))
+        );
+        assert_eq!(parse_request(r#"{"brightness":999}"#), None);
+        assert_eq!(
+            parse_request(r#"{"brightness":0}"#),
+            Some(LedRequest::Brightness(0))
+        );
     }
 
     #[test]
     fn parses_effect_string_lowercased() {
         assert_eq!(
-            json_str(r#"{"effect":"Blink"}"#, "effect"),
-            Some("blink".into())
+            parse_request(r#"{"effect":"Blink"}"#),
+            Some(LedRequest::Effect(Some(crate::led::Effect::Blink)))
         );
         assert_eq!(
-            json_str(r#"{"effect":"sos"}"#, "effect"),
-            Some("sos".into())
+            parse_request(r#"{"effect":"sos"}"#),
+            Some(LedRequest::Effect(Some(crate::led::Effect::Sos)))
         );
-        assert_eq!(json_str("{}", "effect"), None);
+        assert_eq!(parse_request("{}"), None);
     }
 
     #[test]
     fn malformed_body_never_panics() {
-        assert_eq!(json_str(r#"{"effect":"#, "effect"), None);
-        assert_eq!(json_u8(r#"{"brightness":"#, "brightness"), None);
-        assert_eq!(json_bool(r#"{"on"#, "on"), None);
+        assert_eq!(parse_request(r#"{"effect":"#), None);
+        assert_eq!(parse_request(r#"{"brightness":"#), None);
+        assert_eq!(parse_request(r#"{"on"#), None);
+        assert_eq!(parse_request(r#"{"brightness":128garbage}"#), None);
+        assert_eq!(parse_request(r#"{"note":"on":true}"#), None);
+        assert_eq!(parse_request(r#"{"on":"false","brightness":40}"#), None);
     }
 
     #[test]
     fn rejects_empty_and_unknown_commands() {
-        assert!(!apply("{}"));
-        assert!(!apply(r#"{"effect":"unknown"}"#));
-        assert!(!apply(r#"{"brightness":999}"#));
+        assert_eq!(apply("{}"), ApplyResult::Invalid);
+        assert_eq!(apply(r#"{"effect":"unknown"}"#), ApplyResult::Invalid);
+        assert_eq!(apply(r#"{"brightness":999}"#), ApplyResult::Invalid);
     }
 
     #[test]
-    fn accepts_supported_commands_without_global_state() {
-        assert!(apply(r#"{"on":true}"#));
-        assert!(apply(r#"{"brightness":128}"#));
-        assert!(apply(r#"{"effect":"none"}"#));
+    fn parses_supported_commands_without_global_state() {
+        assert_eq!(parse_request(r#"{"on":true}"#), Some(LedRequest::On(true)));
+        assert_eq!(
+            parse_request(r#"{"brightness":128}"#),
+            Some(LedRequest::Brightness(128))
+        );
+        assert_eq!(
+            parse_request(r#"{"effect":"none"}"#),
+            Some(LedRequest::Effect(None))
+        );
+    }
+
+    #[test]
+    fn valid_command_without_led_state_is_unavailable() {
+        assert_eq!(apply(r#"{"on":true}"#), ApplyResult::Unavailable);
     }
 }
