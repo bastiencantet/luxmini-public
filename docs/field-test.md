@@ -88,5 +88,51 @@ It checks that the button is enabled and wired to `saveSettings:`, and that nine
 points (center, edge midpoints, and inset corners) hit the button rather than an
 overlapping view. It does not invoke Save or modify the user's preferences.
 The pre-existing center-only check and the expanded nine-point check both passed
-locally on November 8, 2026. Preference persistence and invalid-input dialogs
-remain part of the manual automation checklist above.
+locally on November 8, 2026. Actual pointer clicks, preference persistence,
+and invalid-input dialogs were subsequently checked as recorded below.
+
+### Issue #4 reproduction record (November 8, 2026)
+
+Source: https://github.com/bastiencantet/luxmini-public/issues/4
+The reporter used LuxMini 0.4.0 on a Mac Studio M4 Max with macOS 26.6.2.
+They reported that pointer clicks did nothing, while a System Events AppleScript
+click saved preferences and closed Settings. The issue contains no exact script
+and had no comments when checked. The current interface uses **Apply automation**
+and intentionally keeps Settings open after saving.
+
+The local check used the current 0.4.1-based client with the local icon changes
+and expanded hit-test assertion, on macOS 26.5 (25F71), in English and French.
+It did not run the historical 0.4.0 binary or reproduce the reporter's OS/hardware.
+
+Safety and isolation:
+
+- Copy the debug executable into a separate test bundle with identifier
+  `com.bastiencantet.luxmini.ui-regression` and a distinct executable name.
+- Launch that executable with `LUXMINI_PREVIEW_SETTINGS_SHOW=1`. This debug path
+  enters Settings before profile resolution, helper startup, or LED-state setup.
+  Do not launch the test bundle through Finder without that environment variable.
+- Keep both automation switches off and both location fields empty. The test
+  must neither start an enabled schedule nor request location access.
+- Inspect only the test bundle's preferences using
+  `defaults read com.bastiencantet.luxmini.ui-regression`.
+  Normal LuxMini preferences are not used.
+
+Observed results:
+
+| Check | Result |
+| --- | --- |
+| English pointer click on Apply automation | Saved 22:17 / 37%; persisted minute 1337 and percentage 37 with automation disabled. |
+| Full process restart | Settings reloaded 22:17 / 37%. |
+| Invalid time 25:99 | Validation dialog; persisted settings unchanged. |
+| Invalid brightness 101% | Validation dialog; persisted settings unchanged. |
+| Invalid latitude 91, longitude 0 | Validation dialog; persisted settings unchanged. |
+| Subsequent valid save | Saved 23:08 / 41%; another restart reloaded both values. |
+| French pointer click on Appliquer l'automatisation | Saved 21:36 / 29%; persisted minute 1296 and percentage 29. |
+| System Events AppleScript click | Not verified: macOS denied osascript assistive access (-1728). No accessibility permissions were changed. |
+| Physical LED / helper startup / reboot | Not tested in this UI-only session. |
+
+The pointer-only failure was not reproduced in this environment. This is not
+confirmation from the reporter and does not justify closing the issue by itself.
+Repeat on the reported Mac/OS, with explicit approval for any physical LED test.
+The remaining AppleScript comparison requires existing authorized assistive
+access; do not bypass or silently expand macOS permissions.
