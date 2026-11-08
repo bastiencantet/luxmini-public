@@ -192,8 +192,11 @@ check('Unknown and future consent versions fail closed',unrecognized_consent)
 def stable_identity():
     _,bundle=run(accepted())
     first=activity()[0]['installation_id']
-    run([action('start'),action('drain')],bundle,day=20001)
-    assert len(activity())==2 and activity()[1]['installation_id']==first
+    data,_=run([action('offer'),action('start'),action('drain')],bundle,day=20001)
+    assert data['prompts']==0 and len(activity())==2 and activity()[1]['installation_id']==first
+    data,_=run([action('offer'),action('start'),action('drain')],bundle,day=20001,version='0.4.4')
+    assert data['prompts']==0 and activity()[-1]['outcome']=='update'
+    assert activity()[-1]['installation_id']==first
 check('Consented identity is stable across restart',stable_identity)
 
 def reaccept_in_flight():

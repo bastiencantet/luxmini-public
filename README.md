@@ -148,10 +148,10 @@ Privacy contact: [bastiencantet@outlook.com](mailto:bastiencantet@outlook.com).
 Copy the statistics ID from Settings > General if it is needed to locate your
 records privately; never post it or a hardware profile in a public issue.
 
-This upcoming collection must not be activated in a release until the public
-privacy notice, erasure flow, retention task and operational logging/backup
-policy have been verified. It cannot retrospectively recover users, updates or
-unique downloads from releases that did not send these statistics.
+Optional installation statistics are available from LuxMini 0.4.3. The public
+privacy notice, erasure flow and daily retention task have been verified for
+this rollout. These statistics cannot retrospectively recover users, updates
+or unique downloads from releases that did not send them.
 
 ## Support
 
