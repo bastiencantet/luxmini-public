@@ -68,5 +68,14 @@
       <description><![CDATA[Apple-signed and notarized release with optional anonymous diagnostics disabled by default, exact-model profile caching, and a privacy-preserving support prompt.]]></description>
       <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.4.0.dmg" sparkle:edSignature="/186S/pe0TiSzDZeClmkUIZQk0jDFrzho2A8Ys3hFqhbIaDXNVRHJth19lQ1qMcxApJEHCXinagxjiFdhc+7Ag==" length="5984758" type="application/octet-stream" />
     </item>
+    <item>
+      <title>Version 0.4.2</title>
+      <sparkle:version>0.4.2</sparkle:version>
+      <sparkle:shortVersionString>0.4.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 08 Nov 2026 11:48:38 +0000</pubDate>
+      <description><![CDATA[Fix app icon transparency and macOS icon padding. Update TLS security dependencies. Add candidate-profile API contract regression tests.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.4.2.dmg" sparkle:edSignature="jBV0wa5TGzktT2zItutZCI/49/+mwn6gzShQbM3f2QKWq1JwPXByq+aDYcGs5icYPHMW2bWaIj04f45llLhTBQ==" length="7920000" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>

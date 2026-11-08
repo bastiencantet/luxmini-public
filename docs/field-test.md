@@ -136,3 +136,33 @@ confirmation from the reporter and does not justify closing the issue by itself.
 Repeat on the reported Mac/OS, with explicit approval for any physical LED test.
 The remaining AppleScript comparison requires existing authorized assistive
 access; do not bypass or silently expand macOS permissions.
+
+### 0.4.2 release preparation (November 8, 2026)
+
+The private build and public mirror contain the transparent icon, the candidate
+API contract regression tests, and TLS dependency security updates. The client
+still requires candidate metadata and explicit visual hardware validation.
+
+Validation completed locally:
+
+- Formatting, unit tests, Clippy with warnings denied, and shellcheck passed.
+  The two hardware-only integration tests remained ignored.
+- cargo-deny passed advisories, licenses, bans, and sources; existing duplicate
+  dependency warnings remain non-blocking.
+- The public client built successfully with the declared Rust 1.88.0 minimum.
+- Both the app and helper contain x86_64 and arm64 slices. The bundle reports
+  version 0.4.2 and contains the verified alpha-transparent icon.
+- Developer ID signatures verified; Apple notarization accepted the DMG;
+  stapling and Gatekeeper assessment passed. The Sparkle archive signature
+  was verified, and local appcast entries were prepared.
+- The production API health endpoint returned 200. Candidate 1 for Mac17,15
+  and Mac18,5 returned the expected model, slot, count header, and valid fields.
+  No profile contents were logged, cached, or approved.
+
+Private artifact: `dist/LuxMini-0.4.2.dmg` (universal, signed and notarized).
+SHA-256: `eab9c32820a2e580da8fb4b6fddef94b3846ca3b7c5cb83a58402d3ff51a7955`.
+
+At preparation time no source changes, tag, release, DMG, or updated feed were
+pushed or published. Publication remains subject to the user's requested
+approval before remote repository modifications. Do not rebuild the DMG before
+uploading these appcast entries: their signature and length bind this artifact.
