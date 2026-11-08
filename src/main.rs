@@ -96,6 +96,25 @@ fn main() {
         return;
     }
 
+    // Test configurations must fail closed in release builds as well. Never
+    // fall through to model discovery or hardware startup from this harness.
+    if std::env::var_os("LUXMINI_DIAGNOSTICS_TEST_CONFIG").is_some() {
+        #[cfg(debug_assertions)]
+        {
+            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+            if let Err(error) = product_metrics::test_support::run(mtm) {
+                eprintln!("diagnostics test failed: {error}");
+                std::process::exit(2);
+            }
+            return;
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            eprintln!("diagnostics tests require a debug build");
+            return;
+        }
+    }
+
     let model = compat::get_mac_model();
     eprintln!("detected Mac model: {model}");
     let existing_install =

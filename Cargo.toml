@@ -40,6 +40,7 @@ ureq = { version = "2.12", default-features = false, features = ["json", "tls"] 
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
     "NSArray",
+    "NSBundle",
     "NSString",
     "NSUUID",
     "NSGeometry",

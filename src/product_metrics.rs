@@ -14,6 +14,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{compat, i18n, preferences};
 
+#[cfg(debug_assertions)]
+#[path = "diagnostics_test.rs"]
+pub(crate) mod test_support;
+
 pub const CONSENT_VERSION: i64 = 1;
 const DAY_SECONDS: i64 = 86_400;
 const BASE_URL: &str = "https://api.luxmini.bastiencantet.com/api/v1";
@@ -60,6 +64,8 @@ struct Request<'a> {
 enum Command {
     Activity,
     Erase(Erasure),
+    #[cfg(debug_assertions)]
+    Barrier(mpsc::Sender<()>),
 }
 
 pub const fn has_consent(enabled: bool, version: i64) -> bool {
@@ -68,19 +74,30 @@ pub const fn has_consent(enabled: bool, version: i64) -> bool {
 
 /// The previous aggregate-only switch is not consent for linked statistics.
 pub fn offer_consent(mtm: MainThreadMarker, existing_install: bool) {
-    if cfg!(feature = "field-test") {
-        return;
-    }
-    if !preferences::diagnostics_consent_decided() {
+    if should_offer_consent(
+        cfg!(feature = "field-test"),
+        preferences::diagnostics_consent_decided(),
+    ) {
         ask_to_enable(mtm, existing_install);
     }
+}
+
+fn should_offer_consent(field_test: bool, decided: bool) -> bool {
+    !field_test && !decided
 }
 
 pub fn ask_to_enable(mtm: MainThreadMarker, existing_install: bool) {
     if cfg!(feature = "field-test") {
         return;
     }
-    if !show_consent(mtm) {
+    apply_choice(show_consent(mtm), existing_install);
+}
+
+fn apply_choice(accepted: bool, existing_install: bool) {
+    if cfg!(feature = "field-test") {
+        return;
+    }
+    if !accepted {
         disable();
         return;
     }
@@ -93,7 +110,7 @@ pub fn ask_to_enable(mtm: MainThreadMarker, existing_install: bool) {
     }
     let state = previous.unwrap_or_else(|| State {
         installation_id: NSUUID::new().UUIDString().to_string().to_ascii_lowercase(),
-        model_id: compat::get_mac_model(),
+        model_id: metrics_model(),
         origin: if existing_install {
             Origin::Existing
         } else {
@@ -116,6 +133,19 @@ fn show_consent(mtm: MainThreadMarker) -> bool {
     }
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
+    let alert = consent_alert(mtm);
+    #[cfg(debug_assertions)]
+    if let Err(error) = test_support::capture_alert(&alert) {
+        eprintln!("consent capture failed: {error}");
+    }
+    accepted_response(alert.runModal())
+}
+
+fn accepted_response(response: isize) -> bool {
+    response == 1001
+}
+
+fn consent_alert(mtm: MainThreadMarker) -> objc2::rc::Retained<NSAlert> {
     let alert = NSAlert::new(mtm);
     alert.setMessageText(&NSString::from_str(i18n::s(
         "Help improve LuxMini?",
@@ -131,7 +161,7 @@ fn show_consent(mtm: MainThreadMarker) -> bool {
         "Allow statistics",
         "Autoriser les statistiques",
     )));
-    alert.runModal() == 1001
+    alert
 }
 
 #[cfg(debug_assertions)]
@@ -214,6 +244,10 @@ fn enqueue(command: Command) {
                     match command {
                         Command::Activity => activity(),
                         Command::Erase(erasure) => erase(&erasure),
+                        #[cfg(debug_assertions)]
+                        Command::Barrier(sender) => {
+                            let _ = sender.send(());
+                        }
                     }
                 }
             })
@@ -231,7 +265,7 @@ fn activity_kind(state: &State, version: &str, day: i64) -> Option<&'static str>
             Origin::Existing => "existing_install",
         }),
         Some(previous) if previous != version => Some("update"),
-        Some(_) if state.last_day != Some(day) => Some("active"),
+        Some(_) if state.last_day.is_none_or(|previous| day > previous) => Some("active"),
         Some(_) => None,
     }
 }
@@ -247,9 +281,9 @@ fn activity() {
         load_state()
     };
     let Some(mut state) = state else { return };
-    let version = env!("CARGO_PKG_VERSION");
+    let version = current_version();
     let day = utc_day();
-    let Some(kind) = activity_kind(&state, version, day) else {
+    let Some(kind) = activity_kind(&state, &version, day) else {
         return;
     };
     let previous = if kind == "update" {
@@ -264,7 +298,7 @@ fn activity() {
         macos_major: crate::telemetry::macos_major(),
         installation_id: &state.installation_id,
         consent_version: CONSENT_VERSION,
-        app_version: Some(version),
+        app_version: Some(&version),
         previous_version: previous,
     };
     if !send(&request, true) {
@@ -280,8 +314,8 @@ fn activity() {
     {
         return;
     }
-    state.last_version = Some(version.into());
-    state.last_day = Some(day);
+    state.last_version = Some(version);
+    state.last_day = Some(state.last_day.map_or(day, |previous| previous.max(day)));
     save_state(&state);
 }
 
@@ -333,7 +367,7 @@ fn send(request: &Request<'_>, require_consent: bool) -> bool {
         .timeout(Duration::from_secs(10))
         .build();
     let token = agent
-        .post(&format!("{BASE_URL}/profile-token"))
+        .post(&format!("{}/profile-token", base_url()))
         .send_json(serde_json::json!({ "model_id": request.model_id }))
         .ok()
         .and_then(|response| response.into_json::<serde_json::Value>().ok())
@@ -343,10 +377,34 @@ fn send(request: &Request<'_>, require_consent: bool) -> bool {
         return false;
     }
     agent
-        .post(&format!("{BASE_URL}/telemetry"))
+        .post(&format!("{}/telemetry", base_url()))
         .set("Authorization", &format!("Bearer {token}"))
         .send_json(request)
         .is_ok()
+}
+
+fn base_url() -> String {
+    #[cfg(debug_assertions)]
+    if let Some(url) = test_support::base_url() {
+        return url;
+    }
+    BASE_URL.into()
+}
+
+fn current_version() -> String {
+    #[cfg(debug_assertions)]
+    if let Some(version) = test_support::version() {
+        return version;
+    }
+    env!("CARGO_PKG_VERSION").into()
+}
+
+fn metrics_model() -> String {
+    #[cfg(debug_assertions)]
+    if test_support::active() {
+        return "Mac999,1".into();
+    }
+    compat::get_mac_model()
 }
 
 fn load_state() -> Option<State> {
@@ -368,6 +426,10 @@ fn save_erasures(pending: &[Erasure]) {
     }
 }
 fn utc_day() -> i64 {
+    #[cfg(debug_assertions)]
+    if let Some(day) = test_support::day() {
+        return day;
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
@@ -388,6 +450,54 @@ mod tests {
             last_version: previous.map(str::to_owned),
             last_day: day,
         }
+    }
+    #[test]
+    fn only_explicit_allow_response_accepts() {
+        for response in [-1001, -1000, -1, 0, 1, 1000, 1002, isize::MAX] {
+            assert!(!accepted_response(response));
+        }
+        assert!(accepted_response(1001));
+    }
+    #[test]
+    fn consent_offer_policy_is_exhaustive() {
+        for field in [false, true] {
+            for decided in [false, true] {
+                assert_eq!(should_offer_consent(field, decided), !field && !decided);
+            }
+        }
+    }
+    #[test]
+    fn clock_rollback_never_repeats_daily_activity() {
+        let state = state(Origin::New, Some("0.4.3"), Some(20_000));
+        for day in [-1, 0, 19_999, 20_000] {
+            assert_eq!(activity_kind(&state, "0.4.3", day), None);
+        }
+    }
+    #[test]
+    fn erasure_payload_excludes_versions_and_private_fields() -> Result<(), serde_json::Error> {
+        let request = Request {
+            event: "forget_installation",
+            outcome: "requested",
+            model_id: "Mac999,1",
+            macos_major: 0,
+            installation_id: "synthetic",
+            consent_version: 1,
+            app_version: None,
+            previous_version: None,
+        };
+        let value = serde_json::to_value(request)?;
+        assert_eq!(value.as_object().map(serde_json::Map::len), Some(6));
+        for field in [
+            "app_version",
+            "previous_version",
+            "serial_number",
+            "smc_key",
+            "email",
+            "schedule",
+        ] {
+            assert!(value.get(field).is_none());
+        }
+        Ok(())
     }
     #[test]
     fn old_aggregate_consent_does_not_enable_linked_metrics() {

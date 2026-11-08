@@ -84,8 +84,19 @@ fn send(event: &str, outcome: &str, model: &str) -> bool {
         .timeout_read(Duration::from_secs(5))
         .timeout_write(Duration::from_secs(5))
         .build();
+    #[cfg(debug_assertions)]
+    let test_base = crate::product_metrics::test_support::base_url();
+    #[cfg(not(debug_assertions))]
+    let test_base: Option<String> = None;
+    let token_url = test_base.as_ref().map_or_else(
+        || PROFILE_TOKEN_URL.into(),
+        |base| format!("{base}/profile-token"),
+    );
+    let telemetry_url = test_base
+        .as_ref()
+        .map_or_else(|| TELEMETRY_URL.into(), |base| format!("{base}/telemetry"));
     let Ok(response) = agent
-        .post(PROFILE_TOKEN_URL)
+        .post(&token_url)
         .send_json(TokenRequest { model_id: model })
     else {
         return false;
@@ -97,7 +108,7 @@ fn send(event: &str, outcome: &str, model: &str) -> bool {
         return false;
     }
     agent
-        .post(TELEMETRY_URL)
+        .post(&telemetry_url)
         .set("Authorization", &format!("Bearer {}", token.access_token))
         .send_json(TelemetryRequest {
             event,
@@ -109,6 +120,10 @@ fn send(event: &str, outcome: &str, model: &str) -> bool {
 }
 
 pub(crate) fn macos_major() -> u8 {
+    #[cfg(debug_assertions)]
+    if crate::product_metrics::test_support::active() {
+        return 26;
+    }
     Command::new("sw_vers")
         .arg("-productVersion")
         .output()
