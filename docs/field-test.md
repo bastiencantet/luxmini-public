@@ -64,3 +64,13 @@ Failures with exact message and reproduction steps:
 If the LED does not visibly change, do not mark that profile as validated. A successful SMC response only proves that the command was accepted, not that the front light moved.
 
 The private test build does not test Sparkle updates or notarization. Those require a separate signed release candidate. A helper that remains alive but stops answering is detected when the next command reaches its timeout; the idle monitor checks process liveness only.
+
+### Candidate API regression checks for the next release
+
+Run `cargo test --all-targets --locked` and repeat with `--features field-test`.
+The profile tests cover the corrected candidate API response (count header and
+matching JSON slot), advertised slots, missing/nonnumeric metadata, mismatched
+models/slots, malformed JSON, and invalid profile fields. They use synthetic
+profiles only, without networking, caching, validation reports, or SMC access.
+The response decoder was extracted without changing the released behavior;
+a missing-count fallback remains a separate backlog item.
