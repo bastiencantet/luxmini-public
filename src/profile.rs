@@ -194,6 +194,16 @@ impl DeviceProfile {
             .set("Authorization", &format!("Bearer {token}"))
             .call()
             .ok()?;
+        Self::candidate_from_response(response, model, slot)
+    }
+
+    // Kept separate from transport so the released client's API contract can
+    // be regression-tested without fetching private profiles or touching SMC.
+    fn candidate_from_response(
+        response: ureq::Response,
+        model: &str,
+        slot: u8,
+    ) -> Option<CandidateProfile> {
         let total = response
             .header("X-LuxMini-Candidate-Count")
             .and_then(|value| value.parse::<u8>().ok())?
@@ -316,6 +326,103 @@ impl DeviceProfile {
 #[cfg(test)]
 mod tests {
     use super::{DeviceProfile, ProfileResponse};
+
+    const CANDIDATE_JSON: &str =
+        r#"{"model_id":"Mac17,15","candidate_slot":1,"key":"ABCD","format":"vv","max":255}"#;
+
+    fn candidate_response(
+        headers: &str,
+        body: &str,
+    ) -> Result<ureq::Response, Box<dyn std::error::Error>> {
+        // Synthetic key only; these fixtures never contact the API or SMC.
+        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n{headers}\r\n{body}")
+            .parse::<ureq::Response>()
+            .map_err(Into::into)
+    }
+
+    #[test]
+    fn corrected_api_contract_supplies_the_first_candidate(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let response = candidate_response("X-LuxMini-Candidate-Count: 1\r\n", CANDIDATE_JSON)?;
+        let candidate = DeviceProfile::candidate_from_response(response, "Mac17,15", 1);
+        assert_eq!(
+            candidate.map(|c| (c.slot, c.total, c.profile)),
+            Some((
+                1,
+                1,
+                DeviceProfile {
+                    key: "ABCD".into(),
+                    replicate: true,
+                    max: 255,
+                }
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn candidate_contract_preserves_advertised_slots() -> Result<(), Box<dyn std::error::Error>> {
+        for total in 1..=3 {
+            for slot in 1..=total {
+                let body = CANDIDATE_JSON.replace(
+                    "\"candidate_slot\":1",
+                    &format!("\"candidate_slot\":{slot}"),
+                );
+                let response =
+                    candidate_response(&format!("x-luxmini-candidate-count: {total}\r\n"), &body)?;
+                assert_eq!(
+                    DeviceProfile::candidate_from_response(response, "Mac17,15", slot)
+                        .map(|c| (c.slot, c.total)),
+                    Some((slot, total))
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn incomplete_or_nonnumeric_candidate_metadata_is_rejected(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Preserve 0.4.1 behavior: the API must supply both count and slot.
+        // A missing-header fallback remains a separate backlog item.
+        for headers in [
+            "",
+            "X-LuxMini-Candidate-Count: \r\n",
+            "X-LuxMini-Candidate-Count: one\r\n",
+            "X-LuxMini-Candidate-Count: 256\r\n",
+        ] {
+            let response = candidate_response(headers, CANDIDATE_JSON)?;
+            assert!(DeviceProfile::candidate_from_response(response, "Mac17,15", 1).is_none());
+        }
+        for body in [
+            CANDIDATE_JSON.replace("\"candidate_slot\":1,", ""),
+            CANDIDATE_JSON.replace("\"candidate_slot\":1", "\"candidate_slot\":2"),
+        ] {
+            let response = candidate_response("X-LuxMini-Candidate-Count: 1\r\n", &body)?;
+            assert!(DeviceProfile::candidate_from_response(response, "Mac17,15", 1).is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_candidate_profiles_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
+        for body in [
+            CANDIDATE_JSON.replace("Mac17,15", "Mac17,14"),
+            CANDIDATE_JSON.replace("ABCD", "ABC"),
+            CANDIDATE_JSON.replace("ABCD", "ABCDE"),
+            CANDIDATE_JSON.replace("ABCD", "ÀBCD"),
+            CANDIDATE_JSON.replace("vv", "invalid"),
+            CANDIDATE_JSON.replace("255", "0"),
+            CANDIDATE_JSON.replace("255", "256"),
+            CANDIDATE_JSON.replace("255", "\"255\""),
+            "{}".into(),
+            "not json".into(),
+        ] {
+            let response = candidate_response("X-LuxMini-Candidate-Count: 1\r\n", &body)?;
+            assert!(DeviceProfile::candidate_from_response(response, "Mac17,15", 1).is_none());
+        }
+        Ok(())
+    }
 
     #[test]
     fn parses_full_line() {
