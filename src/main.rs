@@ -12,6 +12,7 @@ mod led;
 mod location;
 mod onboarding;
 mod preferences;
+mod product_metrics;
 mod profile;
 mod schedule;
 #[cfg(all(feature = "direct", not(feature = "field-test")))]
@@ -88,14 +89,45 @@ fn main() {
         return;
     }
 
+    #[cfg(debug_assertions)]
+    if std::env::var_os("LUXMINI_PREVIEW_DIAGNOSTICS_CONSENT").is_some() {
+        app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        product_metrics::preview_consent(mtm);
+        return;
+    }
+
+    // Test configurations must fail closed in release builds as well. Never
+    // fall through to model discovery or hardware startup from this harness.
+    if std::env::var_os("LUXMINI_DIAGNOSTICS_TEST_CONFIG").is_some() {
+        #[cfg(debug_assertions)]
+        {
+            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+            if let Err(error) = product_metrics::test_support::run(mtm) {
+                eprintln!("diagnostics test failed: {error}");
+                std::process::exit(2);
+            }
+            return;
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            eprintln!("diagnostics tests require a debug build");
+            return;
+        }
+    }
+
     let model = compat::get_mac_model();
     eprintln!("detected Mac model: {model}");
-    telemetry::note_launch(&model);
+    let existing_install =
+        preferences::setup_verified_for(&model) || preferences::load_last_state().is_some();
     let pending = compat::is_pending(&model);
     let supported = compat::is_supported(&model);
     if !pending && !supported && !compat::show_unsupported_alert(mtm, &model) {
         return;
     }
+    product_metrics::offer_consent(mtm, existing_install);
+    product_metrics::start();
+    telemetry::note_launch(&model);
+
     let needs_validation = pending
         && !(preferences::profile_validated_for(&model)
             && profile::DeviceProfile::load_cached().is_some());

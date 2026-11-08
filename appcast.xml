@@ -6,6 +6,15 @@
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
+      <title>Version 0.4.3</title>
+      <sparkle:version>0.4.3</sparkle:version>
+      <sparkle:shortVersionString>0.4.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 08 Nov 2026 14:19:49 +0000</pubDate>
+      <description><![CDATA[Optional installation and update statistics with a short French/English consent dialog. Your choice is remembered across restarts and updates. Statistics stay off until you agree; disabling requests deletion. Improved regression coverage for privacy, offline retries and update tracking.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.4.3.dmg" sparkle:edSignature="OLY5yoLcXmwJ94U5s2Md6ov5Aq2JKwhOlev1Gx01PHNIg+GAvcYLZA+uGHkacXQs5yOp/lGtpWVoi4rXd7trBA==" length="7998728" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 0.2.0</title>
       <sparkle:version>0.2.0</sparkle:version>
       <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
@@ -67,6 +76,15 @@
       <pubDate>Sun, 30 Aug 2026 21:11:07 +0000</pubDate>
       <description><![CDATA[Apple-signed and notarized release with optional anonymous diagnostics disabled by default, exact-model profile caching, and a privacy-preserving support prompt.]]></description>
       <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.4.0.dmg" sparkle:edSignature="/186S/pe0TiSzDZeClmkUIZQk0jDFrzho2A8Ys3hFqhbIaDXNVRHJth19lQ1qMcxApJEHCXinagxjiFdhc+7Ag==" length="5984758" type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 0.4.1</title>
+      <sparkle:version>0.4.1</sparkle:version>
+      <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 27 Sep 2026 13:13:32 +0000</pubDate>
+      <description><![CDATA[Reliable first-run setup with privileged helper verification and recovery, device-specific LED fade validation, redesigned native settings, LED access detection for new models, and robust write-failure handling.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.4.1.dmg" sparkle:edSignature="7QUrV97pUUwr852dM8qULfbaG+xTBdsVKaLjg6TXhiayhG6sBnY7TJIqsssDszGNqLJ64Hcrmru9ripE3L9ABQ==" length="8376850" type="application/octet-stream" />
     </item>
     <item>
       <title>Version 0.4.2</title>

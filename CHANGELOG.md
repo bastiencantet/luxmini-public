@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Fresh opt-in consent for pseudonymous installation, app-version, version-change
+  and daily-active-installation statistics, with remembered refusal and erasure
+  on withdrawal. Existing aggregate consent is not reused for linked data.
+
+### Privacy
+
+- Stop collecting support-reminder responses. Keep LED values, schedules,
+  serial numbers, accounts and local API requests out of product statistics.
+
+
 ## [0.4.2] - 2026-11-08
 
 ### Fixed

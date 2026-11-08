@@ -246,12 +246,27 @@ define_class!(
             // An explicit support click is stronger intent than an automatic
             // reminder; never follow it with a prompt when the menu closes.
             preferences::suppress_support_prompts();
-            crate::telemetry::emit(
-                "support_prompt_result",
-                "support",
-                &crate::compat::get_mac_model(),
-            );
             open_url(SUPPORT_URL);
+        }
+
+        #[unsafe(method(copyStatisticsID:))]
+        fn copy_statistics_id(&self, _sender: &AnyObject) {
+            if !crate::product_metrics::copy_installation_id() {
+                let alert = NSAlert::new(self.mtm());
+                alert.setMessageText(&NSString::from_str(crate::i18n::s(
+                    "Statistics ID unavailable", "Identifiant statistique indisponible",
+                )));
+                alert.setInformativeText(&NSString::from_str(crate::i18n::s(
+                    "Statistics are disabled, or the identifier could not be copied.",
+                    "Les statistiques sont désactivées, ou l'identifiant n'a pas pu être copié.",
+                )));
+                alert.runModal();
+            }
+        }
+
+        #[unsafe(method(openPrivacyPolicy:))]
+        fn open_privacy_policy(&self, _sender: &AnyObject) {
+            open_url("https://luxmini.bastiencantet.com/docs#privacy");
         }
 
         #[unsafe(method(openApiDocs:))]
@@ -639,28 +654,13 @@ impl Handler {
         match alert.runModal() {
             FIRST_ALERT_BUTTON => {
                 preferences::suppress_support_prompts();
-                crate::telemetry::emit(
-                    "support_prompt_result",
-                    "support",
-                    &crate::compat::get_mac_model(),
-                );
                 open_url(SUPPORT_URL);
             }
             THIRD_ALERT_BUTTON => {
                 preferences::suppress_support_prompts();
-                crate::telemetry::emit(
-                    "support_prompt_result",
-                    "never",
-                    &crate::compat::get_mac_model(),
-                );
             }
             _ => {
                 preferences::defer_support_prompt(now);
-                crate::telemetry::emit(
-                    "support_prompt_result",
-                    "later",
-                    &crate::compat::get_mac_model(),
-                );
             }
         }
     }

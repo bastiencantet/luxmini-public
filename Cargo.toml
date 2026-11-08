@@ -1,6 +1,6 @@
 [package]
 name = "mac-led-tray"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 rust-version = "1.88"
 description = "LuxMini — turn off, dim, or schedule the front LED on your Mac, from the menu bar."
@@ -40,7 +40,9 @@ ureq = { version = "2.12", default-features = false, features = ["json", "tls"] 
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
     "NSArray",
+    "NSBundle",
     "NSString",
+    "NSUUID",
     "NSGeometry",
     "NSDate",
     "NSTimer",
@@ -58,6 +60,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSImageView",
     "NSMenu",
     "NSMenuItem",
+    "NSPasteboard",
     "NSResponder",
     "NSRunningApplication",
     "NSScrollView",

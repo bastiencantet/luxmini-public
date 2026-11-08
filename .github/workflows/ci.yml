@@ -38,6 +38,13 @@ jobs:
       - name: Test
         run: cargo test --all-targets
 
+      - name: Consent lifecycle (isolated preferences and loopback HTTP)
+        run: |
+          cargo build --locked
+          python3 scripts/test-diagnostics-consent.py --binary target/debug/mac-led-tray
+          cargo build --locked --features field-test
+          python3 scripts/test-diagnostics-consent.py --field-test --binary target/debug/mac-led-tray
+
       - name: Build (release)
         run: cargo build --release
 

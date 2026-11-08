@@ -180,11 +180,57 @@ pub fn save_api_enabled(enabled: bool) {
 /// Anonymous aggregate diagnostics are explicitly opt-in and disabled until
 /// the user enables the checkbox in Settings.
 pub fn diagnostics_enabled() -> bool {
-    get_bool("diagnostics.enabled")
+    !cfg!(feature = "field-test")
+        && crate::product_metrics::has_consent(
+            get_bool("diagnostics.enabled"),
+            get_int("diagnostics.consent_version"),
+        )
 }
 
 pub fn save_diagnostics_enabled(enabled: bool) {
     set_bool("diagnostics.enabled", enabled);
+}
+
+/// The new linked metrics require a fresh, versioned choice even if old
+/// aggregate diagnostics were enabled.
+pub fn diagnostics_consent_decided() -> bool {
+    get_int("diagnostics.consent_version") == crate::product_metrics::CONSENT_VERSION
+}
+
+pub fn save_diagnostics_consent(enabled: bool) {
+    set_int(
+        "diagnostics.consent_version",
+        crate::product_metrics::CONSENT_VERSION,
+    );
+    save_diagnostics_enabled(enabled);
+}
+
+pub fn product_metrics_state() -> Option<String> {
+    get_str("diagnostics.product_state")
+}
+
+pub fn save_product_metrics_state(value: Option<&str>) {
+    set_str("diagnostics.product_state", value);
+}
+
+pub fn pending_metrics_deletions() -> Option<String> {
+    get_str("diagnostics.pending_deletions")
+}
+
+pub fn save_pending_metrics_deletions(value: Option<&str>) {
+    set_str("diagnostics.pending_deletions", value);
+}
+
+pub fn reset_diagnostics_milestones() {
+    set_int("diagnostics.first_seen_at", 0);
+    for event in [
+        "app_first_launch",
+        "retained_7d",
+        "helper_install_result",
+        "led_activation_result",
+    ] {
+        set_bool(&format!("diagnostics.sent.{event}"), false);
+    }
 }
 
 pub fn ensure_telemetry_first_seen(now: i64) {
