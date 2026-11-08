@@ -64,3 +64,105 @@ Failures with exact message and reproduction steps:
 If the LED does not visibly change, do not mark that profile as validated. A successful SMC response only proves that the command was accepted, not that the front light moved.
 
 The private test build does not test Sparkle updates or notarization. Those require a separate signed release candidate. A helper that remains alive but stops answering is detected when the next command reaches its timeout; the idle monitor checks process liveness only.
+
+## Icon and Save regression checks
+
+The app icon source must contain real alpha transparency outside its silhouette.
+Run `python3 scripts/make_icon.py` to rebuild all ten PNG representations and
+`assets/Icon.icns`. The generator rejects opaque/empty sources, checks transparent
+corners and a preserved white LED, and uses alpha compositing without applying
+the edge alpha twice. The content occupies 824 pixels on the 1024-pixel canvas.
+
+The Save button reported in issue #4 is now **Apply automation**. General
+preferences are saved immediately by their switches. Verify its native mouse
+target without starting the helper or submitting any preferences:
+
+```sh
+cargo build --bin mac-led-tray --locked
+LUXMINI_CHECK_SAVE_HIT_TEST=1 target/debug/mac-led-tray
+```
+
+Expected: `apply_automation_hit=true`. This debug-only path exits before normal
+startup, profile resolution, helper installation, scheduling, or LED access.
+It checks that the button is enabled and wired to `saveSettings:`, and that nine
+points (center, edge midpoints, and inset corners) hit the button rather than an
+overlapping view. It does not invoke Save or modify the user's preferences.
+The pre-existing center-only check and the expanded nine-point check both passed
+locally on November 8, 2026. Actual pointer clicks, preference persistence,
+and invalid-input dialogs were subsequently checked as recorded below.
+
+### Issue #4 reproduction record (November 8, 2026)
+
+Source: https://github.com/bastiencantet/luxmini-public/issues/4
+The reporter used LuxMini 0.4.0 on a Mac Studio M4 Max with macOS 26.6.2.
+They reported that pointer clicks did nothing, while a System Events AppleScript
+click saved preferences and closed Settings. The issue contains no exact script
+and had no comments when checked. The current interface uses **Apply automation**
+and intentionally keeps Settings open after saving.
+
+The local check used the current 0.4.1-based client with the local icon changes
+and expanded hit-test assertion, on macOS 26.5 (25F71), in English and French.
+It did not run the historical 0.4.0 binary or reproduce the reporter's OS/hardware.
+
+Safety and isolation:
+
+- Copy the debug executable into a separate test bundle with identifier
+  `com.bastiencantet.luxmini.ui-regression` and a distinct executable name.
+- Launch that executable with `LUXMINI_PREVIEW_SETTINGS_SHOW=1`. This debug path
+  enters Settings before profile resolution, helper startup, or LED-state setup.
+  Do not launch the test bundle through Finder without that environment variable.
+- Keep both automation switches off and both location fields empty. The test
+  must neither start an enabled schedule nor request location access.
+- Inspect only the test bundle's preferences using
+  `defaults read com.bastiencantet.luxmini.ui-regression`.
+  Normal LuxMini preferences are not used.
+
+Observed results:
+
+| Check | Result |
+| --- | --- |
+| English pointer click on Apply automation | Saved 22:17 / 37%; persisted minute 1337 and percentage 37 with automation disabled. |
+| Full process restart | Settings reloaded 22:17 / 37%. |
+| Invalid time 25:99 | Validation dialog; persisted settings unchanged. |
+| Invalid brightness 101% | Validation dialog; persisted settings unchanged. |
+| Invalid latitude 91, longitude 0 | Validation dialog; persisted settings unchanged. |
+| Subsequent valid save | Saved 23:08 / 41%; another restart reloaded both values. |
+| French pointer click on Appliquer l'automatisation | Saved 21:36 / 29%; persisted minute 1296 and percentage 29. |
+| System Events AppleScript click | Not verified: macOS denied osascript assistive access (-1728). No accessibility permissions were changed. |
+| Physical LED / helper startup / reboot | Not tested in this UI-only session. |
+
+The pointer-only failure was not reproduced in this environment. This is not
+confirmation from the reporter and does not justify closing the issue by itself.
+Repeat on the reported Mac/OS, with explicit approval for any physical LED test.
+The remaining AppleScript comparison requires existing authorized assistive
+access; do not bypass or silently expand macOS permissions.
+
+### 0.4.2 release preparation (November 8, 2026)
+
+The private build and public mirror contain the transparent icon, the candidate
+API contract regression tests, and TLS dependency security updates. The client
+still requires candidate metadata and explicit visual hardware validation.
+
+Validation completed locally:
+
+- Formatting, unit tests, Clippy with warnings denied, and shellcheck passed.
+  The two hardware-only integration tests remained ignored.
+- cargo-deny passed advisories, licenses, bans, and sources; existing duplicate
+  dependency warnings remain non-blocking.
+- The public client built successfully with the declared Rust 1.88.0 minimum.
+- Both the app and helper contain x86_64 and arm64 slices. The bundle reports
+  version 0.4.2 and contains the verified alpha-transparent icon.
+- Developer ID signatures verified; Apple notarization accepted the DMG;
+  stapling and Gatekeeper assessment passed. The Sparkle archive signature
+  was verified, and local appcast entries were prepared.
+- The production API health endpoint returned 200. Candidate 1 for Mac17,15
+  and Mac18,5 returned the expected model, slot, count header, and valid fields.
+  No profile contents were logged, cached, or approved.
+
+Private artifact: `dist/LuxMini-0.4.2.dmg` (universal, signed and notarized).
+SHA-256: `eab9c32820a2e580da8fb4b6fddef94b3846ca3b7c5cb83a58402d3ff51a7955`.
+
+At preparation time no source changes, tag, release, DMG, or updated feed were
+pushed or published. Publication remains subject to the user's requested
+approval before remote repository modifications. Do not rebuild the DMG before
+uploading these appcast entries: their signature and length bind this artifact.

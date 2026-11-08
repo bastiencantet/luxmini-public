@@ -2,7 +2,7 @@
 """Turn assets/icon-source.png into assets/Icon.icns.
 
 Steps:
-  1. Trim opaque-bleed/white borders so the icon squircle hugs its bounds.
+  1. Trim transparent padding from the RGBA source, preserving white artwork.
   2. Resize the content to 824x824 and paste onto a 1024x1024 transparent
      canvas (Apple's macOS Big Sur+ template: 10% air on each side).
   3. Emit every .iconset size and call `iconutil` to produce Icon.icns.
@@ -20,7 +20,7 @@ SOURCE = ROOT / "assets" / "icon-source.png"
 ICONSET = ROOT / "assets" / "Icon.iconset"
 ICNS = ROOT / "assets" / "Icon.icns"
 
-CONTENT_SIZE = 1024
+CONTENT_SIZE = 824
 CANVAS_SIZE = 1024
 
 # iconutil-expected sizes + filenames
@@ -39,40 +39,23 @@ SIZES = [
 
 
 def trim_to_content(img: Image.Image) -> Image.Image:
-    """Trim white/transparent padding around the visible icon."""
+    """Use the source alpha as the silhouette; never remove white LED pixels."""
     img = img.convert("RGBA")
-    pixels = img.load()
-    w, h = img.size
-
-    def is_padding(px):
-        r, g, b, a = px
-        if a < 10:
-            return True
-        # Near-white
-        return r > 245 and g > 245 and b > 245
-
-    # Scan rows/cols
-    def first_non_padding_row(start, stop, step):
-        for y in range(start, stop, step):
-            for x in range(w):
-                if not is_padding(pixels[x, y]):
-                    return y
-        return None
-
-    def first_non_padding_col(start, stop, step):
-        for x in range(start, stop, step):
-            for y in range(h):
-                if not is_padding(pixels[x, y]):
-                    return x
-        return None
-
-    top = first_non_padding_row(0, h, 1)
-    bottom = first_non_padding_row(h - 1, -1, -1)
-    left = first_non_padding_col(0, w, 1)
-    right = first_non_padding_col(w - 1, -1, -1)
-    if None in (top, bottom, left, right):
-        return img
-    return img.crop((left, top, right + 1, bottom + 1))
+    alpha = img.getchannel("A")
+    if alpha.getextrema()[0] == 255:
+        raise ValueError("icon source is opaque; remove its background before building")
+    # Ignore almost invisible export specks when measuring the silhouette;
+    # keep a two-pixel antialias fringe in the crop itself.
+    bounds = alpha.point(lambda value: 255 if value >= 32 else 0).getbbox()
+    if bounds is None:
+        raise ValueError("icon source is fully transparent")
+    left, top, right, bottom = bounds
+    return img.crop((
+        max(0, left - 2),
+        max(0, top - 2),
+        min(img.width, right + 2),
+        min(img.height, bottom + 2),
+    ))
 
 
 def main():
@@ -93,7 +76,9 @@ def main():
     canvas = Image.new("RGBA", (CANVAS_SIZE, CANVAS_SIZE), (0, 0, 0, 0))
     paste_x = (CANVAS_SIZE - new_size[0]) // 2
     paste_y = (CANVAS_SIZE - new_size[1]) // 2
-    canvas.paste(trimmed, (paste_x, paste_y), trimmed)
+    # Composite once: passing alpha as a paste mask would apply it twice and
+    # darken the antialiased rim.
+    canvas.alpha_composite(trimmed, (paste_x, paste_y))
     print(f"content placed at {paste_x},{paste_y}")
 
     if ICONSET.exists():
@@ -102,6 +87,12 @@ def main():
 
     for name, size in SIZES:
         out = canvas.resize((size, size), Image.LANCZOS)
+        alpha = out.getchannel("A")
+        corners = ((0, 0), (size - 1, 0), (0, size - 1), (size - 1, size - 1))
+        if any(alpha.getpixel(point) != 0 for point in corners):
+            raise ValueError(f"{name}: icon corners must be transparent")
+        if alpha.getpixel((size // 2, size // 2)) < 250:
+            raise ValueError(f"{name}: the white LED must not be cut out")
         out.save(ICONSET / name, "PNG")
 
     print(f"wrote {len(SIZES)} PNGs to {ICONSET.name}/")
