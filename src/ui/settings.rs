@@ -756,15 +756,17 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         mtm,
         &p_gen,
         i18n::s(
-            "Share anonymous diagnostics",
-            "Partager des diagnostics anonymes",
+            "Share optional usage statistics",
+            "Partager des statistiques facultatives",
         ),
         Some(i18n::s(
-            "Sends aggregate usage, Mac model, and macOS major version. No serial number.",
-            "Envoie des données d'usage agrégées, le modèle et la version majeure de macOS. Aucun numéro de série.",
+            "Uses a random installation ID with consent. Turn off to delete linked data.",
+            "Identifiant aléatoire avec votre accord. Désactivez pour supprimer les données liées.",
         )),
         361.0,
     );
+    #[cfg(feature = "field-test")]
+    diagnostics.setEnabled(false);
     // General switches are independent preferences, so each change persists
     // immediately instead of waiting for a window-wide Save button.
     for (tag, control) in [&login, &hide, &api, &diagnostics].into_iter().enumerate() {
@@ -781,6 +783,22 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         i18n::s("API docs\u{2026}", "Doc de l'API\u{2026}"),
         sel!(openApiDocs:),
         prect(434.0, 30.0, INSET, 150.0),
+    ));
+
+    p_gen.addSubview(&push_button(
+        mtm,
+        handler,
+        i18n::s("Privacy details…", "Confidentialité…"),
+        sel!(openPrivacyPolicy:),
+        prect(434.0, 30.0, INSET + 164.0, 180.0),
+    ));
+
+    p_gen.addSubview(&push_button(
+        mtm,
+        handler,
+        i18n::s("Copy statistics ID", "Copier l'identifiant statistique"),
+        sel!(copyStatisticsID:),
+        prect(434.0, 30.0, INSET + 358.0, 300.0),
     ));
 
     // ── Pane 4: Advanced ────────────────────────────────────────────────
@@ -1172,12 +1190,19 @@ pub fn save_general(handler: &Handler, sender: &AnyObject) {
             }
         }
         3 => {
-            let was_on = preferences::diagnostics_enabled();
             let now_on = is_on(&r.diagnostics);
-            preferences::save_diagnostics_enabled(now_on);
-            if now_on && !was_on {
-                crate::telemetry::note_launch(&compat::get_mac_model());
+            let control = r.diagnostics.clone();
+            drop(refs);
+            if now_on {
+                crate::product_metrics::ask_to_enable(handler.mtm(), true);
+                if preferences::diagnostics_enabled() {
+                    crate::product_metrics::start();
+                    crate::telemetry::note_launch(&compat::get_mac_model());
+                }
+            } else {
+                crate::product_metrics::disable();
             }
+            set_state(&control, preferences::diagnostics_enabled());
         }
         _ => {}
     }

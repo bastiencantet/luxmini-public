@@ -166,3 +166,37 @@ At preparation time no source changes, tag, release, DMG, or updated feed were
 pushed or published. Publication remains subject to the user's requested
 approval before remote repository modifications. Do not rebuild the DMG before
 uploading these appcast entries: their signature and length bind this artifact.
+
+## Upcoming consented statistics verification (November 8, 2026)
+
+This preparation is local only and does not change the published 0.4.2 release.
+The public privacy contact is `bastiencantet@outlook.com`, confirmed by the owner
+and already present on the website contact page.
+
+- A fresh versioned choice is required; the old anonymous-diagnostics switch
+  does not enable installation histories. Refusal is remembered without limiting
+  LED features. Field-test builds neither prompt for nor send these statistics.
+- New versus existing installation classification, daily coalescing, version
+  changes, and rejection of an old identity after withdrawal/reacceptance have
+  pure regression tests. Default and field-test tests and Clippy pass locally.
+- French and English native consent previews were inspected through accessibility;
+  the French layout was also inspected visually. Pointer refusal returned false
+  and pointer acceptance returned true in preview-only processes. These paths
+  do not create IDs, change the user's choices, start a helper or send statistics.
+- The Settings pane provides privacy details and user-initiated copying of the
+  random statistics ID for private access/erasure requests. Disabling requests
+  erasure and clears the local identity; offline erasure is retained for retry.
+- The API's disposable-PostgreSQL suite checks strict input, model binding,
+  consent version, activity and upgrade retry deduplication, erasure cascades,
+  retention, and absence of installation IDs from Prometheus output. Existing
+  candidate validation and profile-promotion safeguards remain covered.
+- The public privacy page builds successfully. Release builds compile locally;
+  no changed binary is published under the existing 0.4.2 version.
+
+Before shipping: finalize the operational logging and backup/restore policy,
+verify the retention job in the deployment environment, publish the reviewed
+notice before the client, and obtain approval for remote modifications and a
+new release. Refer to the private API metrics document for deployment order.
+Counts will cover consenting installations, never all people or retrospective
+updates. A first consent on an already installed app is an existing-installation
+baseline, not proof of the exact version used before consent.

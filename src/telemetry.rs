@@ -1,9 +1,10 @@
 //! Optional, aggregate-only product diagnostics.
 //!
-//! Diagnostics are disabled by default. When enabled, `LuxMini` sends a bounded
-//! event name, outcome, Mac model, and macOS major version. It never creates an
-//! installation identifier and never sends a serial number, account, location,
-//! SMC value, LED brightness, schedule, preset, or local API request.
+//! These technical counters remain aggregate-only and require the current
+//! explicit diagnostics consent. Their payload contains only a bounded event,
+//! outcome, Mac model and macOS major version. Linked installation statistics
+//! are handled separately by `product_metrics`; neither path sends serials,
+//! accounts, location, SMC values, brightness, schedules or local API requests.
 
 use serde::{Deserialize, Serialize};
 use std::process::Command;
@@ -37,10 +38,10 @@ struct TelemetryRequest<'a> {
 /// milestones when the user has explicitly enabled anonymous diagnostics.
 pub fn note_launch(model: &str) {
     let now = unix_timestamp();
-    preferences::ensure_telemetry_first_seen(now);
     if !preferences::diagnostics_enabled() {
         return;
     }
+    preferences::ensure_telemetry_first_seen(now);
     emit_once("app_first_launch", "success", model);
     if now.saturating_sub(preferences::telemetry_first_seen_at()) >= RETENTION_SECONDS {
         emit_once("retained_7d", "active", model);
@@ -92,6 +93,9 @@ fn send(event: &str, outcome: &str, model: &str) -> bool {
     let Ok(token) = response.into_json::<TokenResponse>() else {
         return false;
     };
+    if !preferences::diagnostics_enabled() {
+        return false;
+    }
     agent
         .post(TELEMETRY_URL)
         .set("Authorization", &format!("Bearer {}", token.access_token))
@@ -104,7 +108,7 @@ fn send(event: &str, outcome: &str, model: &str) -> bool {
         .is_ok()
 }
 
-fn macos_major() -> u8 {
+pub(crate) fn macos_major() -> u8 {
     Command::new("sw_vers")
         .arg("-productVersion")
         .output()

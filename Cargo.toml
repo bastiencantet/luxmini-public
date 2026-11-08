@@ -41,6 +41,7 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
     "NSArray",
     "NSString",
+    "NSUUID",
     "NSGeometry",
     "NSDate",
     "NSTimer",
@@ -58,6 +59,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSImageView",
     "NSMenu",
     "NSMenuItem",
+    "NSPasteboard",
     "NSResponder",
     "NSRunningApplication",
     "NSScrollView",

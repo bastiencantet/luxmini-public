@@ -115,22 +115,43 @@ Ready-to-use recipes for Home Assistant, AppleScript, and the shell are in
 
 ## Privacy
 
-LuxMini has no account, advertising SDK, or cross-app tracking. The client does
-not generate or send a serial number or installation identifier.
+LuxMini has no account or advertising SDK. Essential network calls check for
+updates, request the profile matching the Mac model, and submit a bounded
+hardware-validation answer after the explicit visual test. These calls do not
+include an installation ID. LED values, schedules, presets and local API
+requests stay on the Mac.
 
-Network calls are limited to update checks, requesting the profile matching the
-Mac model, and submitting a `yes`, `no`, or `technical_error` result after an
-explicit pending-hardware test. The profile service can aggregate profile
-requests by model and validation outcomes. The matching profile is cached in
-`~/Library/Application Support/LuxMini/profile`.
+Optional product statistics are **off until a fresh, explicit consent choice**.
+The earlier aggregate-diagnostics switch does not authorize linked statistics.
+Refusing does not limit the app, and the choice is remembered without repeatedly
+asking. Settings > General can enable or disable the option later.
 
-Anonymous product diagnostics are optional and disabled by default. If enabled
-in Settings, LuxMini sends only a closed event name, its outcome, the Mac model,
-and the macOS major version. It does not create or send an installation ID, and
-the server stores aggregate counters rather than per-device event histories.
+After consent only, LuxMini creates a random, app-specific installation ID.
+Daily activity is linked to this ID along with the app version, previous version
+on a version change, Mac model, macOS major version and a coarse installation
+origin (newly observed or already existing). These statistics are **pseudonymous**,
+not fully anonymous: an installation is recognizable over time but is not a
+person, account or serial number. They never identify a website visitor or get
+shared with an advertising provider. Technical counters remain aggregate-only;
+support-reminder choices are no longer collected by this client.
 
-LED control, schedules, presets, support-reminder choices, and the optional
-localhost API stay on the Mac.
+Disabling statistics stops collection, clears the local ID and requests deletion
+of linked server data. Offline erasure requests are retried; accepting again
+creates a different ID. Linked activity is retained for at most 90 days, and
+installation metadata is removed after at most 90 days of inactivity, provided
+the required daily retention task is operating. Already anonymous aggregate
+counters cannot be linked back to an installation. The service receives the
+connection IP for transport, so proxy logging and backup retention must also be
+reviewed before rollout; the product-statistics payload and tables contain no IP.
+
+Privacy contact: [bastiencantet@outlook.com](mailto:bastiencantet@outlook.com).
+Copy the statistics ID from Settings > General if it is needed to locate your
+records privately; never post it or a hardware profile in a public issue.
+
+This upcoming collection must not be activated in a release until the public
+privacy notice, erasure flow, retention task and operational logging/backup
+policy have been verified. It cannot retrospectively recover users, updates or
+unique downloads from releases that did not send these statistics.
 
 ## Support
 
