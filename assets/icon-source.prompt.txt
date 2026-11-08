@@ -1,0 +1,12 @@
+Tool: built-in ImageGen, image edit with transparent_background=true.
+Reference: the existing LuxMini icon-source.png from LuxMini 0.4.1.
+Use case: background extraction, preserving the existing icon identity.
+
+Selected output prompt:
+
+Production macOS icon background correction. Use the reference as the design to preserve: a black rounded-square button with a silver metallic rounded-square border and one centered bright white circular light with a gentle internal glow. Remove its white rectangular background. Reconstruct the OUTER geometric silhouette as one perfectly smooth rounded-square contour with a clean antialiased alpha edge. Remove every white matte remnant, every irregular edge, every disconnected speck and all cast shadows outside the contour. The entire dark face, white lamp, and metallic rim are opaque; transparency exists ONLY outside the single clean rounded-square silhouette. Keep the reference proportions, materials and lamp position. No redesign and no added details. Square transparent PNG, 1024x1024 or larger, containing the full icon with about 8 percent completely empty transparent margin all around. No white background, no checkerboard texture, no glow or shadow outside the silver rim.
+
+The PNG alpha is preserved by scripts/make_icon.py when generating the macOS
+icon representations. The builder crops transparent padding, fits the artwork
+to 824 pixels on a 1024-pixel canvas, and verifies transparent corners and the
+preserved white LED.

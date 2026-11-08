@@ -962,11 +962,27 @@ pub fn save_receives_pointer_hits(handler: &Handler, section: isize) -> bool {
     let Some(content) = r.window.contentView() else {
         return false;
     };
-    let save_center = NSPoint::new(INSET + 115.0, H - 468.0 - 18.0);
+    if !r.save.isEnabled() || r.save.action() != Some(sel!(saveSettings:)) {
+        return false;
+    }
+    let bounds = r.save.bounds();
     let save_ptr = (&raw const *r.save).cast::<NSView>();
-    content
-        .hitTest(save_center)
-        .is_some_and(|hit| std::ptr::eq(&raw const *hit, save_ptr))
+    // Check the center, edge midpoints, and inset corners using real view
+    // coordinates. This catches overlays that leave only the center clickable.
+    [3.0, bounds.size.width / 2.0, bounds.size.width - 3.0]
+        .into_iter()
+        .all(|x| {
+            [3.0, bounds.size.height / 2.0, bounds.size.height - 3.0]
+                .into_iter()
+                .all(|y| {
+                    let point = r
+                        .save
+                        .convertPoint_toView(NSPoint::new(x, y), Some(&content));
+                    content
+                        .hitTest(point)
+                        .is_some_and(|hit| std::ptr::eq(&raw const *hit, save_ptr))
+                })
+        })
 }
 
 #[cfg(debug_assertions)]

@@ -64,3 +64,29 @@ Failures with exact message and reproduction steps:
 If the LED does not visibly change, do not mark that profile as validated. A successful SMC response only proves that the command was accepted, not that the front light moved.
 
 The private test build does not test Sparkle updates or notarization. Those require a separate signed release candidate. A helper that remains alive but stops answering is detected when the next command reaches its timeout; the idle monitor checks process liveness only.
+
+## Icon and Save regression checks
+
+The app icon source must contain real alpha transparency outside its silhouette.
+Run `python3 scripts/make_icon.py` to rebuild all ten PNG representations and
+`assets/Icon.icns`. The generator rejects opaque/empty sources, checks transparent
+corners and a preserved white LED, and uses alpha compositing without applying
+the edge alpha twice. The content occupies 824 pixels on the 1024-pixel canvas.
+
+The Save button reported in issue #4 is now **Apply automation**. General
+preferences are saved immediately by their switches. Verify its native mouse
+target without starting the helper or submitting any preferences:
+
+```sh
+cargo build --bin mac-led-tray --locked
+LUXMINI_CHECK_SAVE_HIT_TEST=1 target/debug/mac-led-tray
+```
+
+Expected: `apply_automation_hit=true`. This debug-only path exits before normal
+startup, profile resolution, helper installation, scheduling, or LED access.
+It checks that the button is enabled and wired to `saveSettings:`, and that nine
+points (center, edge midpoints, and inset corners) hit the button rather than an
+overlapping view. It does not invoke Save or modify the user's preferences.
+The pre-existing center-only check and the expanded nine-point check both passed
+locally on November 8, 2026. Preference persistence and invalid-input dialogs
+remain part of the manual automation checklist above.
