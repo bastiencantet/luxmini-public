@@ -2,6 +2,8 @@
 
 # LuxMini
 
+[![README views](https://hits.sh/github.com/bastiencantet/luxmini-public.svg?label=README%20views&color=38bdf8&style=flat-square)](https://hits.sh/github.com/bastiencantet/luxmini-public/)
+
 **Turn off, dim, or schedule the front LED on your Mac.**
 Source-available (Fair Source) · lightweight menu-bar app · set-and-forget.
 
