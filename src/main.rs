@@ -8,13 +8,17 @@ mod helper;
 mod helper_protocol;
 mod i18n;
 mod launch_at_login;
-mod led;
+mod light;
 mod location;
 mod onboarding;
+mod output;
 mod preferences;
 mod product_metrics;
 mod profile;
 mod schedule;
+#[cfg(feature = "setapp")]
+mod setapp;
+mod simulator;
 #[cfg(all(feature = "direct", not(feature = "field-test")))]
 mod sparkle;
 mod sun;
@@ -25,10 +29,13 @@ mod welcome;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
-use led::{with_state, LedState, STATE};
+use light::{with_state, LightState, STATE};
 
-#[cfg(not(feature = "direct"))]
-compile_error!("enable the direct distribution feature");
+#[cfg(all(feature = "direct", feature = "setapp"))]
+compile_error!("the direct and setapp distribution features are mutually exclusive");
+
+#[cfg(not(any(feature = "direct", feature = "setapp")))]
+compile_error!("enable either the direct or setapp distribution feature");
 
 #[cfg(all(feature = "field-test", not(feature = "direct")))]
 compile_error!("the field-test feature requires the direct distribution feature");
@@ -45,6 +52,11 @@ fn main() {
     };
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+
+    if let Some(kind) = simulator::requested_kind() {
+        simulator::run(mtm, kind);
+        return;
+    }
 
     #[cfg(all(debug_assertions, feature = "direct", not(feature = "field-test")))]
     if std::env::var_os("LUXMINI_CHECK_SPARKLE_LOAD").is_some() {
@@ -121,7 +133,9 @@ fn main() {
         preferences::setup_verified_for(&model) || preferences::load_last_state().is_some();
     let pending = compat::is_pending(&model);
     let supported = compat::is_supported(&model);
-    if !pending && !supported && !compat::show_unsupported_alert(mtm, &model) {
+    let device = output::detect_device();
+    let has_logo = device.kind == output::LightKind::RearLogo;
+    if !has_logo && !pending && !supported && !compat::show_unsupported_alert(mtm, &model) {
         return;
     }
     product_metrics::offer_consent(mtm, existing_install);
@@ -131,7 +145,9 @@ fn main() {
     let needs_validation = pending
         && !(preferences::profile_validated_for(&model)
             && profile::DeviceProfile::load_cached().is_some());
-    let initial_state = if should_run_setup(
+    let initial_state = if has_logo {
+        LightState::open(device)
+    } else if should_run_setup(
         supported || pending,
         preferences::setup_verified_for(&model),
         preferences::setup_pending_for(&model) || needs_validation,
@@ -141,8 +157,8 @@ fn main() {
         };
         state
     } else {
-        let state = LedState::new();
-        if (supported || pending) && !state.helper_ready() {
+        let state = LightState::open(device);
+        if (supported || pending) && !state.is_ready() {
             eprintln!("LED control unavailable; reopening setup");
             let Some(recovered) = welcome::run(mtm, &model, pending) else {
                 return;
@@ -183,15 +199,19 @@ fn main() {
         schedule::start();
     }
 
-    let _helper_feedback_timer = app_handle.handler.start_helper_feedback_timer();
-    led::start_helper_monitor();
+    let _output_feedback_timer = app_handle.handler.start_output_feedback_timer();
+    light::start_output_monitor();
 
     #[cfg(all(feature = "direct", not(feature = "field-test")))]
     sparkle::init();
+    #[cfg(feature = "setapp")]
+    setapp::init();
+
     // Optional local control API (opt-in via `api.enabled`, localhost only).
     api::maybe_start();
 
     app.run();
+    light::shutdown();
 }
 
 #[cfg(test)]

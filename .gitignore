@@ -1,5 +1,8 @@
 /target
 /dist
+/vendor/Setapp.xcframework
+/vendor/SetappFramework-Resources.bundle
+/vendor/setappPublicKey.pem
 .DS_Store
 *.swp
 

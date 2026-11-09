@@ -1,4 +1,4 @@
-.PHONY: help build run setup app field-test-package dmg notarize release lint test clean
+.PHONY: help build run setup app field-test-package setapp-app setapp-package dmg notarize release lint test clean
 .DEFAULT_GOAL := help
 
 HELPER = target/release/led-helper
@@ -30,6 +30,12 @@ app: ## Build the LuxMini.app bundle under dist/
 
 field-test-package: ## Build an isolated private Mac hardware test package
 	./scripts/dmg-field-test.sh
+
+setapp-app: ## Build the Setapp-specific LuxMini.app bundle
+	./scripts/bundle-setapp.sh
+
+setapp-package: ## Build, notarize, and package the Setapp submission ZIP
+	./scripts/package-setapp.sh
 
 # Override version via `make dmg VERSION=0.1.2`; otherwise it reads Cargo.toml.
 dmg: ## Build the app and package it as dist/LuxMini-<version>.dmg

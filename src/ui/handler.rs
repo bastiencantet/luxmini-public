@@ -1,5 +1,5 @@
 use crate::launch_at_login;
-use crate::led::{read_status, with_state, Effect, LedState, STATE};
+use crate::light::{read_status, with_state, Effect, LightState, STATE};
 use crate::preferences;
 use crate::schedule::{self, AutoDim};
 #[cfg(all(feature = "direct", not(feature = "field-test")))]
@@ -54,8 +54,8 @@ define_class!(
     pub struct Handler;
 
     impl Handler {
-        #[unsafe(method(helperFeedbackTick:))]
-        fn helper_feedback_tick(&self, _timer: &AnyObject) {
+        #[unsafe(method(outputFeedbackTick:))]
+        fn output_feedback_tick(&self, _timer: &AnyObject) {
             if self.show_control_error_if_any() {
                 self.refresh_ui();
             }
@@ -88,7 +88,7 @@ define_class!(
         #[unsafe(method(effectNone:))]
         fn effect_none(&self, _sender: &AnyObject) {
             schedule::note_manual_override();
-            with_state(LedState::clear_effect);
+            with_state(LightState::clear_effect);
             self.finish_led_action();
         }
 
@@ -176,6 +176,8 @@ define_class!(
         // (covers brightness the scheduler changed while the menu was closed).
         #[unsafe(method(menuWillOpen:))]
         fn menu_will_open(&self, _menu: &AnyObject) {
+            #[cfg(feature = "setapp")]
+            crate::setapp::report_user_interaction();
             self.refresh_ui();
             self.sync_autodim_menu();
         }
@@ -190,6 +192,10 @@ define_class!(
                     preferences::record_meaningful_action(unix_timestamp());
                     Self::maybe_show_support_prompt();
                 }
+            }
+            #[cfg(feature = "setapp")]
+            {
+                self.ivars().menu_had_manual_action.set(false);
             }
         }
 
@@ -334,6 +340,10 @@ define_class!(
 
         #[unsafe(method(detectLedAccess:))]
         fn detect_led_access(&self, _sender: &AnyObject) {
+            if read_status().device.setup_method() == crate::output::SetupMethod::Reconnect {
+                self.retry_led_setup();
+                return;
+            }
             self.run_isolated_setup(crate::onboarding::run_manual);
         }
 
@@ -348,7 +358,7 @@ define_class!(
             let Some(mtm) = MainThreadMarker::new() else {
                 return;
             };
-            match with_state(LedState::test_helper_connection) {
+            match with_state(LightState::test_output_connection) {
                 Some(Ok(())) => {
                     field_test_alert(
                         mtm,
@@ -391,7 +401,7 @@ define_class!(
 
         #[cfg(feature = "field-test")]
         #[unsafe(method(testHelperRestart:))]
-        fn test_helper_restart(&self, _sender: &AnyObject) {
+        fn test_output_restart(&self, _sender: &AnyObject) {
             let Some(mtm) = MainThreadMarker::new() else {
                 return;
             };
@@ -403,9 +413,9 @@ define_class!(
             ) {
                 return;
             }
-            match with_state(LedState::test_helper_restart) {
+            match with_state(LightState::test_output_restart) {
                 Some(Ok(())) => {
-                    let note = with_state(LedState::take_control_error).flatten();
+                    let note = with_state(LightState::take_control_error).flatten();
                     field_test_alert(
                         mtm,
                         "Helper recovery passed",
@@ -414,7 +424,7 @@ define_class!(
                     );
                 }
                 Some(Err(error)) => {
-                    let _ = with_state(LedState::take_control_error);
+                    let _ = with_state(LightState::take_control_error);
                     field_test_alert(mtm, "Helper recovery failed", &error.to_string(), None);
                 }
                 None => {
@@ -457,6 +467,13 @@ define_class!(
             sparkle::check_for_updates();
         }
 
+        #[unsafe(method(applicationWillTerminate:))]
+        fn app_will_terminate(&self, _notification: &AnyObject) {
+            crate::api::stop();
+            schedule::stop();
+            crate::light::shutdown();
+        }
+
         #[unsafe(method(quit:))]
         fn quit(&self, _sender: &AnyObject) {
             if let Some(mtm) = MainThreadMarker::new() {
@@ -486,13 +503,13 @@ impl Handler {
         *self.ivars().ui.borrow_mut() = Some(ui);
     }
 
-    pub fn start_helper_feedback_timer(&self) -> Retained<NSTimer> {
+    pub fn start_output_feedback_timer(&self) -> Retained<NSTimer> {
         // SAFETY: the selector is implemented by Handler and receives the timer.
         unsafe {
             NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
                 2.0,
                 self,
-                sel!(helperFeedbackTick:),
+                sel!(outputFeedbackTick:),
                 None,
                 true,
             )
@@ -524,7 +541,7 @@ impl Handler {
         let status = read_status();
         let is_on = status.is_on;
         let brightness = status.brightness;
-        let helper_ready = status.helper_ready;
+        let ready = status.ready;
         let ui_ref = self.ivars().ui.borrow();
         let Some(ui) = ui_ref.as_ref() else { return };
         let target_state = isize::from(is_on);
@@ -536,7 +553,7 @@ impl Handler {
         ui.slider.setDoubleValue(f64::from(brightness));
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0..=100
         let percent = ((f64::from(brightness) / 255.0) * 100.0).round() as u32;
-        let status = if !helper_ready {
+        let status = if !ready {
             "ERROR"
         } else if is_on {
             "ON"
@@ -544,7 +561,7 @@ impl Handler {
             "OFF"
         };
         ui.status_label.setStringValue(&NSString::from_str(status));
-        let percent_text = if helper_ready {
+        let percent_text = if ready {
             format!("{percent}%")
         } else {
             "!".to_owned()
@@ -555,7 +572,7 @@ impl Handler {
     }
 
     pub fn show_control_error_if_any(&self) -> bool {
-        let error = with_state(LedState::take_control_error).flatten();
+        let error = with_state(LightState::take_control_error).flatten();
         if let Some(error) = error {
             if show_led_control_error(&error) {
                 self.retry_led_setup();
@@ -567,12 +584,20 @@ impl Handler {
     }
 
     fn retry_led_setup(&self) {
+        if read_status().device.setup_method() == crate::output::SetupMethod::Reconnect {
+            // Restore before reopening so the new session captures Apple's
+            // original settings, not our current constant-brightness mapping.
+            crate::light::shutdown();
+            let device = read_status().device;
+            self.run_isolated_setup(|_, _| Some(LightState::open(device)));
+            return;
+        }
         self.run_isolated_setup(|mtm, model| {
             crate::welcome::run(mtm, model, crate::compat::is_pending(model))
         });
     }
 
-    fn run_isolated_setup(&self, setup: impl FnOnce(MainThreadMarker, &str) -> Option<LedState>) {
+    fn run_isolated_setup(&self, setup: impl FnOnce(MainThreadMarker, &str) -> Option<LightState>) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
@@ -587,11 +612,11 @@ impl Handler {
         };
         let previous_preset = previous_state
             .as_mut()
-            .map(LedState::pause_for_profile_discovery);
+            .map(LightState::pause_for_profile_discovery);
         let model = crate::compat::get_mac_model();
         let mut next_state = setup(mtm, &model).or(previous_state);
         if let (Some(state), Some(preset)) = (next_state.as_mut(), previous_preset) {
-            if state.helper_ready() {
+            if state.is_ready() {
                 state.apply_preset(&preset);
             }
         }
@@ -678,7 +703,7 @@ impl Handler {
     fn save_to_preset(&self, slot: u8) {
         let preset = {
             let g = STATE.lock().ok();
-            g.and_then(|g| g.as_ref().map(LedState::capture_preset))
+            g.and_then(|g| g.as_ref().map(LightState::capture_preset))
         };
         if let Some(p) = preset {
             preferences::save_preset(slot, &p);

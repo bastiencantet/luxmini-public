@@ -9,7 +9,7 @@ running. It is not a `LaunchDaemon`, has no socket or network access, waits on a
 anonymous stdin pipe, and exits when its private stdin pipe closes.
 
 LuxMini's optional local control API is disabled by default and binds only to
-`127.0.0.1`. Profile fetches, optional anonymous aggregate telemetry, and
+`127.0.0.1`. Profile fetches, optional consented installation/update statistics, and
 Sparkle update checks are outbound HTTPS requests. See the README for the exact
 data involved.
 
@@ -28,3 +28,13 @@ and reproduction steps when possible. Do not include a serial number or other
 device identifier.
 
 Please do not open a public issue for an unpatched vulnerability.
+
+
+## Rear-logo beta
+
+On compatible MacBook Pro models, the rear-logo driver uses private
+CoreBrightness properties without a privileged helper. It captures the original
+mapping and mode and attempts to restore them on normal exit, including an
+originally disabled logo. Force quit cannot guarantee restoration. No persistent
+CoreBrightness defaults are written. The beta has not yet been physically
+validated on a compatible Mac; see docs/2026-macbook-pro-validation.md.

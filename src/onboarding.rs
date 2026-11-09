@@ -8,7 +8,7 @@ use objc2_app_kit::{NSAlert, NSApplication};
 use objc2_foundation::NSString;
 
 use crate::helper::Helper;
-use crate::led::LedState;
+use crate::light::LightState;
 use crate::profile::{CandidateProfile, DeviceProfile};
 
 const FIRST_BUTTON: isize = 1000;
@@ -207,7 +207,7 @@ fn show_no_match(mtm: MainThreadMarker) {
     );
 }
 
-fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<LedState> {
+fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<LightState> {
     if !confirm_start(mtm, model) {
         return None;
     }
@@ -258,14 +258,17 @@ fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<Led
             None,
         );
     }
-    Some(LedState::with_helper(helper))
+    Some(LightState::with_output(
+        crate::output::from_helper(helper),
+        crate::light::Persistence::Saved,
+    ))
 }
 
-pub fn run(mtm: MainThreadMarker, model: &str) -> Option<LedState> {
+pub fn run(mtm: MainThreadMarker, model: &str) -> Option<LightState> {
     run_discovery(mtm, model, false)
 }
 
-pub fn run_manual(mtm: MainThreadMarker, model: &str) -> Option<LedState> {
+pub fn run_manual(mtm: MainThreadMarker, model: &str) -> Option<LightState> {
     run_discovery(mtm, model, true)
 }
 

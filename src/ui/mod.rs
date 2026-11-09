@@ -1,5 +1,6 @@
 //! `AppKit` menu-bar UI: status-bar item, dropdown menu, and the Obj-C action handler.
 
+pub(crate) mod device;
 pub mod handler;
 mod menu;
 pub mod settings;

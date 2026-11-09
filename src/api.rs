@@ -17,7 +17,7 @@
 //! - `POST /led` → apply `{"on":bool}` / `{"brightness":0..255}` /
 //!   `{"effect":"blink|blinkfast|pulse|sos|strobe|none"}`, then return the state.
 
-use crate::led::{self, Effect};
+use crate::light::{self, Effect};
 use crate::preferences;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -152,38 +152,45 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
 
     match (method.as_str(), path.as_str()) {
         ("GET", "/healthz") => {
-            if led::helper_available() {
+            if light::output_available() {
                 respond(&mut stream, 200, r#"{"status":"ok"}"#)
             } else {
                 respond(
                     &mut stream,
                     503,
-                    r#"{"status":"degraded","helper":"unavailable"}"#,
+                    r#"{"status":"degraded","output":"unavailable","helper":"unavailable"}"#,
                 )
             }
         }
-        ("GET", "/led") => respond(&mut stream, 200, &led_json()),
-        ("POST", "/led") => match apply(&body) {
-            ApplyResult::Applied => respond(&mut stream, 200, &led_json()),
+        ("GET", "/led" | "/light") => respond(&mut stream, 200, &light_json()),
+        ("POST", "/led" | "/light") => match apply(&body) {
+            ApplyResult::Applied => respond(&mut stream, 200, &light_json()),
             ApplyResult::Invalid => respond(&mut stream, 400, r#"{"error":"invalid command"}"#),
             ApplyResult::Unavailable => {
-                respond(&mut stream, 503, r#"{"error":"led helper unavailable"}"#)
+                respond(&mut stream, 503, r#"{"error":"light output unavailable"}"#)
             }
         },
         _ => respond(&mut stream, 404, r#"{"error":"not found"}"#),
     }
 }
 
-fn led_json() -> String {
-    let status = led::read_status();
-    let on = status.is_on;
-    let brightness = status.brightness;
-    let helper_ready = status.helper_ready;
-    format!(r#"{{"on":{on},"brightness":{brightness},"max":255,"helper_ready":{helper_ready}}}"#)
+fn light_json() -> String {
+    status_json(light::read_status())
+}
+
+fn status_json(status: light::LightStatus) -> String {
+    // Keep helper_ready as a wire compatibility alias; product code uses ready.
+    serde_json::json!({
+        "on": status.is_on, "brightness": status.brightness, "max": 255,
+        "ready": status.ready, "helper_ready": status.ready,
+        "device": status.device.kind.as_str(),
+        "experimental": status.device.experimental, "simulated": status.device.simulated,
+    })
+    .to_string()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LedRequest {
+enum LightRequest {
     Effect(Option<Effect>),
     On(bool),
     Brightness(u8),
@@ -200,7 +207,7 @@ enum ApplyResult {
 /// Parse a small `POST /led` command without touching the global LED state.
 /// An effect takes precedence; when both on and brightness are supplied, both
 /// commands are applied in that order for compatibility with existing clients.
-fn parse_request(body: &str) -> Option<LedRequest> {
+fn parse_request(body: &str) -> Option<LightRequest> {
     let value: serde_json::Value = serde_json::from_str(body).ok()?;
     let object = value.as_object()?;
     if let Some(effect) = object.get("effect") {
@@ -214,7 +221,7 @@ fn parse_request(body: &str) -> Option<LedRequest> {
             "none" | "off" | "clear" | "stop" => None,
             _ => return None,
         };
-        return Some(LedRequest::Effect(parsed));
+        return Some(LightRequest::Effect(parsed));
     }
     let on = object
         .get("on")
@@ -223,9 +230,9 @@ fn parse_request(body: &str) -> Option<LedRequest> {
         value.as_u64().and_then(|n| u8::try_from(n).ok()).map(Some)
     })?;
     match (on, brightness) {
-        (Some(on), Some(brightness)) => Some(LedRequest::OnAndBrightness(on, brightness)),
-        (Some(on), None) => Some(LedRequest::On(on)),
-        (None, Some(brightness)) => Some(LedRequest::Brightness(brightness)),
+        (Some(on), Some(brightness)) => Some(LightRequest::OnAndBrightness(on, brightness)),
+        (Some(on), None) => Some(LightRequest::On(on)),
+        (None, Some(brightness)) => Some(LightRequest::Brightness(brightness)),
         (None, None) => None,
     }
 }
@@ -234,24 +241,24 @@ fn apply(body: &str) -> ApplyResult {
     let Some(command) = parse_request(body) else {
         return ApplyResult::Invalid;
     };
-    let succeeded = led::with_state(|state| match command {
-        LedRequest::Effect(Some(effect)) => {
+    let succeeded = light::with_state(|state| match command {
+        LightRequest::Effect(Some(effect)) => {
             state.start_effect(effect);
             !state.control_failed()
         }
-        LedRequest::Effect(None) => {
+        LightRequest::Effect(None) => {
             state.clear_effect();
             !state.control_failed()
         }
-        LedRequest::On(on) => {
+        LightRequest::On(on) => {
             state.set_on(on);
             !state.control_failed()
         }
-        LedRequest::Brightness(value) => {
+        LightRequest::Brightness(value) => {
             state.set_brightness(value);
             !state.control_failed()
         }
-        LedRequest::OnAndBrightness(on, value) => {
+        LightRequest::OnAndBrightness(on, value) => {
             state.set_on(on);
             let first_succeeded = !state.control_failed();
             state.set_brightness(value);
@@ -285,18 +292,44 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply, parse_request, ApplyResult, LedRequest};
+    use super::{apply, parse_request, ApplyResult, LightRequest};
+
+    #[test]
+    fn reports_both_devices_with_the_same_control_schema() -> Result<(), serde_json::Error> {
+        for kind in [
+            crate::output::LightKind::FrontLed,
+            crate::output::LightKind::RearLogo,
+        ] {
+            let body = super::status_json(crate::light::LightStatus {
+                is_on: true,
+                brightness: 128,
+                ready: true,
+                device: crate::output::DeviceInfo::physical(kind),
+            });
+            let value: serde_json::Value = serde_json::from_str(&body)?;
+            assert_eq!(
+                value.get("device").and_then(serde_json::Value::as_str),
+                Some(kind.as_str())
+            );
+            assert_eq!(value.get("ready"), value.get("helper_ready"));
+            assert_eq!(
+                value.get("brightness").and_then(serde_json::Value::as_u64),
+                Some(128)
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn parses_brightness_and_rejects_out_of_range_values() {
         assert_eq!(
             parse_request(r#"{"brightness":128}"#),
-            Some(LedRequest::Brightness(128))
+            Some(LightRequest::Brightness(128))
         );
         assert_eq!(parse_request(r#"{"brightness":999}"#), None);
         assert_eq!(
             parse_request(r#"{"brightness":0}"#),
-            Some(LedRequest::Brightness(0))
+            Some(LightRequest::Brightness(0))
         );
     }
 
@@ -304,11 +337,11 @@ mod tests {
     fn parses_effect_string_lowercased() {
         assert_eq!(
             parse_request(r#"{"effect":"Blink"}"#),
-            Some(LedRequest::Effect(Some(crate::led::Effect::Blink)))
+            Some(LightRequest::Effect(Some(crate::light::Effect::Blink)))
         );
         assert_eq!(
             parse_request(r#"{"effect":"sos"}"#),
-            Some(LedRequest::Effect(Some(crate::led::Effect::Sos)))
+            Some(LightRequest::Effect(Some(crate::light::Effect::Sos)))
         );
         assert_eq!(parse_request("{}"), None);
     }
@@ -332,14 +365,17 @@ mod tests {
 
     #[test]
     fn parses_supported_commands_without_global_state() {
-        assert_eq!(parse_request(r#"{"on":true}"#), Some(LedRequest::On(true)));
+        assert_eq!(
+            parse_request(r#"{"on":true}"#),
+            Some(LightRequest::On(true))
+        );
         assert_eq!(
             parse_request(r#"{"brightness":128}"#),
-            Some(LedRequest::Brightness(128))
+            Some(LightRequest::Brightness(128))
         );
         assert_eq!(
             parse_request(r#"{"effect":"none"}"#),
-            Some(LedRequest::Effect(None))
+            Some(LightRequest::Effect(None))
         );
     }
 

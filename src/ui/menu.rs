@@ -84,8 +84,8 @@ fn build_control_view(
     let row1_y = total_h - top_pad - row_h;
     let led_label = make_label(
         mtm,
-        "LED",
-        NSRect::new(NSPoint::new(pad, row1_y), NSSize::new(80.0, row_h)),
+        super::device::current().control_label,
+        NSRect::new(NSPoint::new(pad, row1_y), NSSize::new(130.0, row_h)),
         13.0,
         false,
         false,
@@ -238,7 +238,7 @@ pub fn build_app(mtm: MainThreadMarker) -> App {
     let menu = NSMenu::new(mtm);
     menu.setAutoenablesItems(false);
 
-    menu.addItem(&make_header(mtm, i18n::s("Power", "Alimentation")));
+    menu.addItem(&make_header(mtm, super::device::current().menu_heading));
 
     let (control_view, control_refs) = build_control_view(mtm, &handler);
     let control_item = NSMenuItem::new(mtm);

@@ -18,7 +18,7 @@ jobs:
     name: fmt · clippy · test · build
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust (stable + clippy + rustfmt)
         uses: dtolnay/rust-toolchain@stable
@@ -52,7 +52,7 @@ jobs:
     name: build on MSRV (1.88)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust 1.88
         uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
@@ -67,7 +67,7 @@ jobs:
     name: cargo-deny (licenses · advisories · bans)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -76,6 +76,6 @@ jobs:
     name: shellcheck (build/release scripts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # shellcheck is preinstalled on the ubuntu runner image.
       - run: shellcheck scripts/*.sh
