@@ -6,15 +6,6 @@
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
-      <title>Version 0.5.0</title>
-      <sparkle:version>0.5.0</sparkle:version>
-      <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
-      <pubDate>Mon, 09 Nov 2026 17:47:47 +0000</pubDate>
-      <description><![CDATA[Beta support for the illuminated rear Apple logo on compatible MacBook Pro models. Shared brightness, effects, presets, schedules and local API for front LEDs and rear logos. Expanded regression tests. Rear-logo hardware validation is pending; private macOS interfaces may change. Original Apple settings are restored on normal exit; force quit cannot guarantee restoration.]]></description>
-      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.5.0.dmg" sparkle:edSignature="mDJKeIDS4pMITOkBzgyN2vnIzzdp6MEucRSllcW2YoKfpZwYETrKyFbY2KR4fUnzaEzzOPFVuwHpFQdXkNXxAQ==" length="8088060" type="application/octet-stream" />
-    </item>
-    <item>
       <title>Version 0.4.3</title>
       <sparkle:version>0.4.3</sparkle:version>
       <sparkle:shortVersionString>0.4.3</sparkle:shortVersionString>
