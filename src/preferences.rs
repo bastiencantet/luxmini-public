@@ -5,7 +5,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2_foundation::NSString;
 
-use crate::led::Effect;
+use crate::light::Effect;
 use crate::schedule::{AutoDim, Location};
 
 #[cfg(feature = "direct")]
@@ -462,7 +462,7 @@ fn get_str(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{clamp_brightness, effect_from_str, effect_to_str};
-    use crate::led::Effect;
+    use crate::light::Effect;
 
     #[test]
     fn effect_str_round_trip() {

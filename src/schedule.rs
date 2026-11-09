@@ -1,7 +1,7 @@
 //! Auto-dim scheduler: one level-triggered background thread that recomputes the
 //! LED's target from (rules, local clock, sunrise/sunset) every tick and applies
 //! it idempotently, so sleep/wake, DST and clock jumps self-heal. Brightness goes
-//! through the transient `LedState::apply_auto`, never the user's manual baseline.
+//! through the transient `LightState::apply_auto`, never the user's manual baseline.
 
 use crate::preferences;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -185,7 +185,7 @@ fn evaluate_and_apply(handle: &SchedHandle) {
         now.utc_offset_min,
     );
     let target = evaluate(dim, now.minute, st.sunset, st.sunrise);
-    crate::led::with_state(|s| {
+    crate::light::with_state(|s| {
         // A replaced or disabled scheduler may have been calculating a sunset
         // while another thread stopped it. Never apply that stale result.
         if handle.stop.load(Ordering::Acquire)

@@ -19,7 +19,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer};
 
 use crate::helper::Helper;
-use crate::led::LedState;
+use crate::light::LightState;
 use crate::preferences;
 use crate::profile::DeviceProfile;
 
@@ -690,7 +690,7 @@ mod feedback_tests {
 
 /// A pending Mac can try its existing approved profile first; failed visual
 /// confirmation falls through to the bounded candidate discovery flow.
-pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LedState> {
+pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightState> {
     preferences::mark_setup_pending(model);
     let ui = WelcomeWindow::new(mtm, model);
     if !ui.ask(
@@ -770,7 +770,10 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LedState
                 None,
             );
             ui.close();
-            return Some(LedState::with_helper(helper));
+            return Some(LightState::with_output(
+                crate::output::from_helper(helper),
+                crate::light::Persistence::Saved,
+            ));
         }
 
         if ui.ask(

@@ -6,7 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
+### Tests
+
+- Cover all 256 brightness values across four device ranges, malformed mappings,
+  rejected writes and rollbacks, exact Apple-state restoration and worker
+  disconnect/shutdown ordering without accessing physical logo hardware.
+
+### Changed
+
+- Label rear-logo support as beta in the menu and Settings, with physical
+  validation still pending. Document the shared-light product roadmap.
+
+- Unify front-LED and rear-logo behavior behind `LightOutput` and a shared light
+  controller. SMC transport recovery and CoreBrightness restoration live in
+  drivers, while device wording/artwork lives in the presentation layer.
+- Add `/light` as a device-neutral API path, retaining `/led` and `helper_ready`
+  compatibility, with device metadata and a common `ready` field.
+- Extend the memory-backed simulator to front LEDs with `--simulate-led`;
+  both previews use the same controls, effects and controller contract tests.
+
 ### Added
+
+- A standalone rear-logo simulator (`--simulate-logo`) with a native animated
+  preview, brightness controls and real LuxMini effects. It uses memory only
+  and bypasses hardware, preferences and network startup.
+
+- Experimental rear-logo backend for MacBook Pro models with an actual
+  `bklb-backlight` device. Reuses the LED controls, presets, effects, schedule,
+  and local API without an SMC helper or administrator prompt. Captures and
+  restores the original CoreBrightness mapping and mode on normal exit.
+  Physical validation on compatible hardware is still pending.
 
 - Fresh opt-in consent for pseudonymous installation, app-version, version-change
   and daily-active-installation statistics, with remembered refusal and erasure
@@ -166,10 +197,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Effects submenu (blink / pulse / SOS / strobe), launch-at-login, and Sparkle
   auto-updates.
 
-[Unreleased]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.2...HEAD
-[0.4.2]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.1...v0.4.2
-[0.4.1]: https://github.com/bastiencantet/luxmini-public/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/bastiencantet/luxmini-public/compare/v0.3.3...v0.4.0
+[Unreleased]: https://github.com/bastiencantet/mac-led-tray/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/bastiencantet/mac-led-tray/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/bastiencantet/mac-led-tray/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/bastiencantet/mac-led-tray/compare/v0.3.0...v0.3.1

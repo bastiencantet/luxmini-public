@@ -1,6 +1,6 @@
-//! LED blink/pulse/strobe/SOS effect loops. Each runs on its own thread and polls an `AtomicBool` stop flag for prompt cancellation.
+//! Shared light blink/pulse/strobe/SOS effect loops. Each runs on its own thread and polls an `AtomicBool` stop flag for prompt cancellation.
 
-use crate::led::{write_raw, Effect};
+use crate::light::{write_raw, Effect};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

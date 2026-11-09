@@ -4,7 +4,7 @@
 use crate::compat;
 use crate::i18n;
 use crate::launch_at_login;
-use crate::led::read_status;
+use crate::light::read_status;
 use crate::preferences;
 use crate::schedule::{self, AutoDim};
 use crate::ui::handler::Handler;
@@ -437,6 +437,9 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         return;
     };
 
+    let presentation = super::device::current();
+    let has_logo = presentation.shows_logo;
+
     // ── Pane 0: Auto-dim ────────────────────────────────────────────────
     let p_auto = pane(mtm);
     p_auto.addSubview(&heading(
@@ -445,10 +448,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     ));
     p_auto.addSubview(&hint(
         mtm,
-        i18n::s(
-            "Choose when LuxMini should adjust the front LED.",
-            "Choisissez quand LuxMini ajuste la LED avant.",
-        ),
+        presentation.schedule_hint,
         prect(62.0, 24.0, INSET, CONTENT_WIDTH),
     ));
     p_auto.addSubview(&section_label(mtm, i18n::s("SCHEDULE", "HORAIRES"), 111.0));
@@ -529,10 +529,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
 
     // ── Pane 0: daily LED control ────────────────────────────────────────
     let p_led = pane(mtm);
-    p_led.addSubview(&heading(
-        mtm,
-        i18n::s("Your front LED", "La LED de votre Mac"),
-    ));
+    p_led.addSubview(&heading(mtm, presentation.title));
     p_led.addSubview(&hint(
         mtm,
         i18n::s(
@@ -563,21 +560,35 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         }
     }
     p_led.addSubview(&image_clip);
-    let led_preview_off = load_artwork(off_name).map(|image| {
-        let view = artwork_view(mtm, &image, image_frame.size);
-        image_clip.addSubview(&view);
-        view
-    });
-    let led_preview_on = load_artwork(on_name).map(|image| {
-        let view = artwork_view(mtm, &image, image_frame.size);
-        image_clip.addSubview(&view);
-        view
-    });
+    let led_preview_off = (!has_logo)
+        .then(|| load_artwork(off_name))
+        .flatten()
+        .map(|image| {
+            let view = artwork_view(mtm, &image, image_frame.size);
+            image_clip.addSubview(&view);
+            view
+        });
+    let led_preview_on = (!has_logo)
+        .then(|| load_artwork(on_name))
+        .flatten()
+        .map(|image| {
+            let view = artwork_view(mtm, &image, image_frame.size);
+            image_clip.addSubview(&view);
+            view
+        });
+
+    if has_logo {
+        p_led.addSubview(&hint(
+            mtm,
+            presentation.preview_caption,
+            prect(170.0, 80.0, INSET + 20.0, 380.0),
+        ));
+    }
 
     let control_x = INSET + 446.0;
     p_led.addSubview(&label(
         mtm,
-        i18n::s("Front light", "Voyant avant"),
+        presentation.control_label,
         prect(111.0, 25.0, control_x, 195.0),
         true,
     ));
@@ -804,22 +815,39 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     // ── Pane 4: Advanced ────────────────────────────────────────────────
     let p_advanced = pane(mtm);
     p_advanced.addSubview(&heading(mtm, i18n::s("Advanced", "Avancé")));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&hint(
-        mtm,
-        i18n::s(
-            "Troubleshoot LED access if the light does not respond.",
-            "Vérifiez l'accès à la LED si elle ne répond pas.",
-        ),
-        prect(62.0, 24.0, INSET, CONTENT_WIDTH),
-    ));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&section_label(
-        mtm,
-        i18n::s("LED ACCESS", "ACCÈS À LA LED"),
-        111.0,
-    ));
-    #[cfg(not(feature = "field-test"))]
+    if has_logo {
+        p_advanced.addSubview(&hint(
+            mtm,
+            i18n::s(
+                "Rear-logo beta. Physical validation is pending. Reconnect if it stops responding.",
+                "Pomme arrière en bêta, validation matérielle en attente. Reconnectez-la si elle ne répond plus.",
+            ),
+            prect(62.0, 44.0, INSET, CONTENT_WIDTH),
+        ));
+        p_advanced.addSubview(&push_button(
+            mtm,
+            handler,
+            i18n::s("Reconnect logo", "Reconnecter la pomme"),
+            sel!(runSetupTest:),
+            prect(142.0, 36.0, INSET, 250.0),
+        ));
+    } else {
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&hint(
+            mtm,
+            i18n::s(
+                "Troubleshoot LED access if the light does not respond.",
+                "Vérifiez l'accès à la LED si elle ne répond pas.",
+            ),
+            prect(62.0, 24.0, INSET, CONTENT_WIDTH),
+        ));
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&section_label(
+            mtm,
+            i18n::s("LED ACCESS", "ACCÈS À LA LED"),
+            111.0,
+        ));
+        #[cfg(not(feature = "field-test"))]
     p_advanced.addSubview(&hint(
         mtm,
         i18n::s(
@@ -828,39 +856,40 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         ),
         prect(142.0, 44.0, INSET, CONTENT_WIDTH),
     ));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&push_button(
-        mtm,
-        handler,
-        i18n::s("Run LED setup…", "Relancer la configuration LED…"),
-        sel!(runSetupTest:),
-        prect(204.0, 36.0, INSET, 250.0),
-    ));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&divider(mtm, prect(265.0, 1.0, INSET, CONTENT_WIDTH)));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&section_label(
-        mtm,
-        i18n::s("PROFILE DISCOVERY", "DÉTECTION DU PROFIL"),
-        283.0,
-    ));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&hint(
-        mtm,
-        i18n::s(
-            "Test up to three allowlisted profiles and keep only the one you confirm.",
-            "Teste jusqu'à trois profils autorisés et conserve celui que vous confirmez.",
-        ),
-        prect(310.0, 40.0, INSET, CONTENT_WIDTH),
-    ));
-    #[cfg(not(feature = "field-test"))]
-    p_advanced.addSubview(&push_button(
-        mtm,
-        handler,
-        i18n::s("Detect LED access…", "Détecter l'accès à la LED…"),
-        sel!(detectLedAccess:),
-        prect(363.0, 36.0, INSET, 250.0),
-    ));
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&push_button(
+            mtm,
+            handler,
+            i18n::s("Run LED setup…", "Relancer la configuration LED…"),
+            sel!(runSetupTest:),
+            prect(204.0, 36.0, INSET, 250.0),
+        ));
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&divider(mtm, prect(265.0, 1.0, INSET, CONTENT_WIDTH)));
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&section_label(
+            mtm,
+            i18n::s("PROFILE DISCOVERY", "DÉTECTION DU PROFIL"),
+            283.0,
+        ));
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&hint(
+            mtm,
+            i18n::s(
+                "Test up to three allowlisted profiles and keep only the one you confirm.",
+                "Teste jusqu'à trois profils autorisés et conserve celui que vous confirmez.",
+            ),
+            prect(310.0, 40.0, INSET, CONTENT_WIDTH),
+        ));
+        #[cfg(not(feature = "field-test"))]
+        p_advanced.addSubview(&push_button(
+            mtm,
+            handler,
+            i18n::s("Detect LED access…", "Détecter l'accès à la LED…"),
+            sel!(detectLedAccess:),
+            prect(363.0, 36.0, INSET, 250.0),
+        ));
+    }
     #[cfg(feature = "field-test")]
     {
         p_advanced.addSubview(&hint(
@@ -1059,13 +1088,13 @@ pub fn refresh_led(handler: &Handler) {
     let Some(r) = refs.as_ref() else { return };
     let status = read_status();
     set_state(&r.led_switch, status.is_on);
-    r.led_switch.setEnabled(status.helper_ready);
-    r.led_slider.setEnabled(status.helper_ready);
+    r.led_switch.setEnabled(status.ready);
+    r.led_slider.setEnabled(status.ready);
     r.led_slider.setDoubleValue(f64::from(status.brightness));
     let percent = (f64::from(status.brightness) / 255.0 * 100.0).round();
     r.led_percent
         .setStringValue(&NSString::from_str(&format!("{percent:.0}%")));
-    let text = if !status.helper_ready {
+    let text = if !status.ready {
         i18n::s("LED access unavailable", "Accès à la LED indisponible")
     } else if status.is_on {
         i18n::s("On", "Allumé")
@@ -1073,7 +1102,7 @@ pub fn refresh_led(handler: &Handler) {
         i18n::s("Off", "Éteint")
     };
     r.led_status.setStringValue(&NSString::from_str(text));
-    let preview_lit = status.is_on && status.brightness > 0 && status.helper_ready;
+    let preview_lit = status.is_on && status.brightness > 0 && status.ready;
     if let Some(image) = &r.led_preview_on {
         image.setHidden(!preview_lit);
         image.setAlphaValue(f64::from(status.brightness) / 255.0);
