@@ -65,7 +65,56 @@ fn model_name(model: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{artwork, fade_level, model_name, FADE_STEPS};
+    use super::{artwork, fade_level, model_name, repeat_fade, FadeShared, FADE_STEPS};
+    use std::io;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn visual_test_repeats_across_cycles_until_the_user_stops_it() -> io::Result<()> {
+        let shared = FadeShared::new();
+        let mut levels = Vec::new();
+        repeat_fade(
+            &shared,
+            |level| {
+                levels.push(level);
+                if levels.len() == (FADE_STEPS * 2 + 1) as usize {
+                    shared.stop.store(true, Ordering::Release);
+                }
+                Ok(())
+            },
+            || {},
+        )?;
+        assert_eq!(levels.len(), (FADE_STEPS * 2 + 1) as usize);
+        assert_eq!(levels.first(), levels.get(FADE_STEPS as usize));
+        assert_eq!(levels.first(), levels.get((FADE_STEPS * 2) as usize));
+        repeat_fade(
+            &shared,
+            |_| Err(io::Error::other("write after confirmation")),
+            || {},
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn visual_test_stops_at_the_first_write_failure() {
+        let shared = FadeShared::new();
+        let mut writes = 0;
+        let mut waited = false;
+        let result = repeat_fade(
+            &shared,
+            |_| {
+                writes += 1;
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "synthetic write failure",
+                ))
+            },
+            || waited = true,
+        );
+        assert!(result.is_err());
+        assert_eq!(writes, 1);
+        assert!(!waited);
+    }
 
     #[test]
     fn m4_setup_uses_the_matching_mac_mini_artwork() {
@@ -576,23 +625,35 @@ fn fade_level(step: u32) -> u8 {
     level
 }
 
-fn fade_loop(helper: &mut Helper, original: &[u8], shared: &FadeShared) -> io::Result<()> {
+fn repeat_fade(
+    shared: &FadeShared,
+    mut write: impl FnMut(u8) -> io::Result<()>,
+    mut wait: impl FnMut(),
+) -> io::Result<()> {
     let mut step = 0;
-    let result = (|| {
-        while !shared.stop.load(Ordering::Acquire) {
-            let level = fade_level(step);
-            helper.write_led_test(level)?;
-            shared.level.store(level, Ordering::Release);
-            step = (step + 1) % FADE_STEPS;
+    while !shared.stop.load(Ordering::Acquire) {
+        let level = fade_level(step);
+        write(level)?;
+        shared.level.store(level, Ordering::Release);
+        step = (step + 1) % FADE_STEPS;
+        wait();
+    }
+    Ok(())
+}
+
+fn fade_loop(helper: &mut Helper, original: &[u8], shared: &FadeShared) -> io::Result<()> {
+    let result = repeat_fade(
+        shared,
+        |level| helper.write_led_test(level),
+        || {
             for _ in 0..4 {
                 if shared.stop.load(Ordering::Acquire) {
                     break;
                 }
                 thread::sleep(FADE_STEP_DELAY / 4);
             }
-        }
-        Ok(())
-    })();
+        },
+    );
     let restore = helper.restore_profile_raw(original);
     if result.is_err() || restore.is_err() {
         shared.failed.store(true, Ordering::Release);
@@ -639,6 +700,19 @@ fn test_led_until_response(helper: &mut Helper, ui: &WelcomeWindow) -> io::Resul
         return Err(io::Error::other("LED fade stopped unexpectedly"));
     }
     Ok(response)
+}
+
+/// Candidate discovery uses the same continuous, failure-aware visual test as setup.
+/// The helper is already authorized before this window and its fade begin.
+pub(crate) fn confirm_candidate(
+    mtm: MainThreadMarker,
+    model: &str,
+    helper: &mut Helper,
+) -> io::Result<bool> {
+    let ui = WelcomeWindow::new(mtm, model);
+    let response = test_led_until_response(helper, &ui);
+    ui.close();
+    response.map(|response| response == PRIMARY)
 }
 
 fn helper_failure_message(error: &io::Error) -> &'static str {

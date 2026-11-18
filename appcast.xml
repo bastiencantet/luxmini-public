@@ -6,6 +6,15 @@
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
+      <title>Version 0.5.1</title>
+      <sparkle:version>0.5.1</sparkle:version>
+      <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 18 Nov 2026 15:42:26 +0000</pubDate>
+      <description><![CDATA[Candidate LED detection now keeps fading until you answer, so the test cannot be missed during setup. Previous brightness is restored afterward, and technical failures stay separate from visual answers. Validation reports now include the app version to help diagnose setup issues.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.5.1.dmg" sparkle:edSignature="Zz/8tHkZKlMIujqx8pXmxhoSKg5NE3FTVNa2z2W9YRv8noc2v0AgbvEv2F3/HfIpJAzFspchHRJytgHZnOzXCw==" length="8084518" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 0.5.0</title>
       <sparkle:version>0.5.0</sparkle:version>
       <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>

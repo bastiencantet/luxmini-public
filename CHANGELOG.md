@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-18
+
+### Fixed
+
+- Keep candidate-profile LED tests fading until the user answers, using the same
+  continuous confirmation as normal setup. Restore the previous bytes afterward
+  and keep helper/write failures separate from negative visual answers.
+
+### Added
+
+- Include the app build version in anonymous candidate-profile validation reports.
+
 ## [0.5.0] - 2026-11-09
 
 ### Tests

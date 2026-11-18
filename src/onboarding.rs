@@ -1,8 +1,5 @@
 //! Interactive LED-profile discovery for pending or manually retested Macs.
 
-use std::thread;
-use std::time::Duration;
-
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSAlert, NSApplication};
 use objc2_foundation::NSString;
@@ -32,35 +29,6 @@ fn alert(
         alert.addButtonWithTitle(&NSString::from_str(label));
     }
     alert.runModal()
-}
-
-/// Run a numbered pulse pattern and restore the exact bytes read before it.
-/// Discovery accepts only two-byte keys, matching every allowlisted LED profile.
-fn run_pattern(helper: &mut Helper, slot: u8) -> std::io::Result<()> {
-    let original = helper.read_profile_raw()?;
-    if original.len() != 2 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "candidate SMC key is not two bytes",
-        ));
-    }
-
-    let result = (0..slot).try_for_each(|_| {
-        helper.write_led_test(255)?;
-        thread::sleep(Duration::from_millis(260));
-        helper.write_led_test(24)?;
-        thread::sleep(Duration::from_millis(360));
-        Ok(())
-    });
-    thread::sleep(Duration::from_millis(180));
-    let restore = helper.restore_profile_raw(&original);
-    match (result, restore) {
-        (Err(write), Err(restore)) => Err(std::io::Error::other(format!(
-            "candidate LED test failed: {write}; restoration failed: {restore}"
-        ))),
-        (Err(error), _) | (_, Err(error)) => Err(error),
-        (Ok(()), Ok(())) => Ok(()),
-    }
 }
 
 fn choose_candidate(
@@ -95,15 +63,9 @@ fn choose_candidate(
 }
 
 fn confirm_start(mtm: MainThreadMarker, model: &str) -> bool {
-    let details = if crate::i18n::fr() {
-        format!(
-            "LuxMini cherche comment accéder à la LED sur ce Mac ({model}). L'application testera au maximum trois profils LED connus. Chaque test produit 1, 2 ou 3 pulsations, puis restaure exactement la valeur précédente. Aucune autre clé SMC n'est testée. Seuls le modèle, le numéro du candidat et votre réponse sont envoyés."
-        )
-    } else {
-        format!(
-            "LuxMini is determining how to access the LED on this Mac ({model}). The app will test at most three known LED profiles. Each test produces 1, 2, or 3 pulses, then restores the exact previous value. No other SMC key is tested. Only the model, candidate number, and your answer are sent."
-        )
-    };
+    let details = format!(
+        "LuxMini is determining how to access the LED on this Mac ({model}). The app will test at most three known LED profiles. Each test keeps fading the real front LED until you answer Yes or No, then restores the exact previous value. No other SMC key is tested. Only the model, candidate number, app version, and your answer are sent."
+    );
     alert(
         mtm,
         crate::i18n::s("Detect LED access", "Détecter l'accès à la LED"),
@@ -141,7 +103,6 @@ fn fetch_candidates(mtm: MainThreadMarker, model: &str) -> Option<Vec<CandidateP
 fn test_candidate(
     mtm: MainThreadMarker,
     model: &str,
-    total: u8,
     candidate: CandidateProfile,
 ) -> Result<Option<(u8, DeviceProfile)>, ()> {
     let CandidateProfile { slot, profile, .. } = candidate;
@@ -159,10 +120,12 @@ fn test_candidate(
             None,
         );
     })?;
-    if let Err(error) = run_pattern(&mut helper, slot) {
-        eprintln!("candidate LED pattern {slot} failed: {error}");
-        let _ = DeviceProfile::report_validation(model, slot, "technical_error");
-        alert(
+    let saw_fade = match crate::welcome::confirm_candidate(mtm, model, &mut helper) {
+        Ok(confirmed) => confirmed,
+        Err(error) => {
+            eprintln!("candidate LED pattern {slot} failed: {error}");
+            let _ = DeviceProfile::report_validation(model, slot, "technical_error");
+            alert(
             mtm,
             crate::i18n::s("LED test failed", "Échec du test LED"),
             &format!(
@@ -175,23 +138,11 @@ fn test_candidate(
             "OK",
             None,
         );
-        return Err(());
-    }
-
-    let prompt = if crate::i18n::fr() {
-        format!("Avez-vous vu la LED avant produire exactement {slot} pulsation(s) ?")
-    } else {
-        format!("Did you see the front LED produce exactly {slot} pulse(s)?")
+            return Err(());
+        }
     };
-    let saw_pulses = alert(
-        mtm,
-        &format!("{} {slot}/{total}", crate::i18n::s("LED test", "Test LED")),
-        &prompt,
-        crate::i18n::s("Yes", "Oui"),
-        Some(crate::i18n::s("No", "Non")),
-    ) == FIRST_BUTTON;
-    let _ = DeviceProfile::report_validation(model, slot, if saw_pulses { "yes" } else { "no" });
-    Ok(saw_pulses.then_some((slot, profile)))
+    let _ = DeviceProfile::report_validation(model, slot, if saw_fade { "yes" } else { "no" });
+    Ok(saw_fade.then_some((slot, profile)))
 }
 
 fn show_no_match(mtm: MainThreadMarker) {
@@ -212,10 +163,9 @@ fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<Lig
         return None;
     }
     let candidates = fetch_candidates(mtm, model)?;
-    let total = u8::try_from(candidates.len()).ok()?.min(MAX_CANDIDATES);
     let mut matches = Vec::new();
     for candidate in candidates {
-        if let Some(candidate_match) = test_candidate(mtm, model, total, candidate).ok()? {
+        if let Some(candidate_match) = test_candidate(mtm, model, candidate).ok()? {
             matches.push(candidate_match);
         }
     }

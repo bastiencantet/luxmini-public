@@ -61,6 +61,7 @@ struct ValidationRequest<'a> {
     model_id: &'a str,
     candidate_slot: u8,
     outcome: &'a str,
+    app_version: &'a str,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -234,7 +235,7 @@ impl DeviceProfile {
     }
 
     /// Send an anonymous validation outcome. This is best-effort and contains
-    /// only the hardware model and the answer; no serial or installation ID.
+    /// only the model, candidate, answer, and app version; no installation ID.
     pub fn report_validation(model: &str, slot: u8, outcome: &str) -> bool {
         if !(1..=3).contains(&slot)
             || !matches!(outcome, "yes" | "no" | "selected" | "technical_error")
@@ -252,6 +253,7 @@ impl DeviceProfile {
                 model_id: model,
                 candidate_slot: slot,
                 outcome,
+                app_version: env!("CARGO_PKG_VERSION"),
             })
             .is_ok()
     }
@@ -338,6 +340,25 @@ mod tests {
         format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n{headers}\r\n{body}")
             .parse::<ureq::Response>()
             .map_err(Into::into)
+    }
+
+    #[test]
+    fn validation_report_includes_the_build_version_without_an_installation_id(
+    ) -> Result<(), serde_json::Error> {
+        let payload = serde_json::to_value(super::ValidationRequest {
+            model_id: "Mac999,1",
+            candidate_slot: 1,
+            outcome: "no",
+            app_version: env!("CARGO_PKG_VERSION"),
+        })?;
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "model_id": "Mac999,1", "candidate_slot": 1, "outcome": "no",
+                "app_version": env!("CARGO_PKG_VERSION"),
+            })
+        );
+        Ok(())
     }
 
     #[test]
