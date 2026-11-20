@@ -37,6 +37,9 @@ pub struct SettingsRefs {
     pub led_slider: Retained<NSSlider>,
     pub led_percent: Retained<NSTextField>,
     pub led_status: Retained<NSTextField>,
+    pub sleep_switch: Retained<NSSwitch>,
+    pub sleep_slider: Retained<NSSlider>,
+    pub sleep_percent: Retained<NSTextField>,
     pub led_preview_on: Option<Retained<NSImageView>>,
     pub led_preview_off: Option<Retained<NSImageView>>,
     #[cfg(debug_assertions)]
@@ -45,7 +48,7 @@ pub struct SettingsRefs {
 }
 
 const W: f64 = 800.0;
-const H: f64 = 540.0;
+const H: f64 = 614.0;
 const PANE_X: f64 = 0.0;
 const PW: f64 = W;
 const INSET: f64 = 42.0;
@@ -643,7 +646,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         prect(285.0, 32.0, control_x, 270.0),
     ));
 
-    p_led.addSubview(&section_label(mtm, i18n::s("EFFECTS", "EFFETS"), 342.0));
+    p_led.addSubview(&section_label(mtm, i18n::s("EFFECTS", "EFFETS"), 333.0));
     let primary_fx: [(&str, Sel); 3] = [
         (i18n::s("Steady", "Fixe"), sel!(effectNone:)),
         (i18n::s("Blink", "Clignotement"), sel!(effectBlink:)),
@@ -657,7 +660,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
             handler,
             title,
             *action,
-            prect(369.0, 34.0, x, 138.0),
+            prect(357.0, 34.0, x, 138.0),
         ));
     }
     let extra_fx: [(&str, Sel); 3] = [
@@ -668,7 +671,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     for (i, (title, action)) in extra_fx.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)] // i is 0..3
         let x = INSET + 450.0 + i as f64 * 90.0;
-        let button = push_button(mtm, handler, title, *action, prect(369.0, 34.0, x, 86.0));
+        let button = push_button(mtm, handler, title, *action, prect(357.0, 34.0, x, 86.0));
         // SAFETY: a borderless button still retains a native focus and action
         // path, but reads as a secondary text command rather than another tile.
         unsafe {
@@ -676,11 +679,11 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         }
         p_led.addSubview(&button);
     }
-    p_led.addSubview(&divider(mtm, prect(426.0, 1.0, INSET, CONTENT_WIDTH)));
+    p_led.addSubview(&divider(mtm, prect(404.0, 1.0, INSET, CONTENT_WIDTH)));
     p_led.addSubview(&section_label(
         mtm,
         i18n::s("SAVED SETUPS", "RÉGLAGES ENREGISTRÉS"),
-        443.0,
+        421.0,
     ));
     let load: [Sel; 3] = [sel!(loadPreset1:), sel!(loadPreset2:), sel!(loadPreset3:)];
     let store: [Sel; 3] = [
@@ -696,14 +699,14 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
             handler,
             &format!("{} {}", i18n::s("Use preset", "Appliquer"), i + 1),
             *load_action,
-            prect(474.0, 36.0, x, 151.0),
+            prect(448.0, 36.0, x, 151.0),
         ));
         let save_button = push_button(
             mtm,
             handler,
             i18n::s("Save", "Mémoriser"),
             *save_action,
-            prect(474.0, 36.0, x + 151.0, 74.0),
+            prect(448.0, 36.0, x + 151.0, 74.0),
         );
         // SAFETY: setBordered: changes only the button's native appearance.
         unsafe {
@@ -711,6 +714,56 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         }
         p_led.addSubview(&save_button);
     }
+
+    p_led.addSubview(&divider(mtm, prect(496.0, 1.0, INSET, CONTENT_WIDTH)));
+    p_led.addSubview(&section_label(mtm, "MAC SLEEP", 509.0));
+    let beta = hint(mtm, "BETA", prect(508.0, 18.0, INSET + 94.0, 46.0));
+    beta.setTextColor(Some(&NSColor::systemOrangeColor()));
+    beta.setFont(Some(&NSFont::boldSystemFontOfSize(10.0)));
+    p_led.addSubview(&beta);
+    let report = push_button(
+        mtm,
+        handler,
+        "Report a bug",
+        sel!(reportSleepBug:),
+        prect(502.0, 28.0, PW - INSET - 136.0, 136.0),
+    );
+    // SAFETY: this native button keeps its action and focus while appearing as a link.
+    unsafe {
+        let _: () = msg_send![&report, setBordered: false];
+    }
+    p_led.addSubview(&report);
+    let sleep_switch = toggle_row(
+        mtm,
+        &p_led,
+        "Use a different brightness during sleep",
+        None,
+        533.0,
+    );
+    // SAFETY: a native slider sends the same preference-only action as the
+    // switch. Editing this value never previews it on the physical output.
+    let sleep_slider: Retained<NSSlider> =
+        unsafe { msg_send![NSSlider::alloc(mtm), initWithFrame: prect(568.0, 25.0, INSET, 420.0)] };
+    sleep_slider.setMinValue(0.0);
+    sleep_slider.setMaxValue(100.0);
+    let sleep_percent = label(mtm, "0%", prect(568.0, 24.0, INSET + 436.0, 90.0), false);
+    // SAFETY: both retained controls target Handler's one-argument selector.
+    unsafe {
+        let _: () = msg_send![&sleep_switch, setTarget: handler];
+        let _: () = msg_send![&sleep_switch, setAction: sel!(saveSleepSettings:)];
+        let _: () = msg_send![&sleep_slider, setTarget: handler];
+        let _: () = msg_send![&sleep_slider, setAction: sel!(saveSleepSettings:)];
+        let _: () = msg_send![&sleep_slider, setContinuous: true];
+        let _: () = msg_send![&sleep_slider, setAccessibilityLabel: &*NSString::from_str("Sleep brightness")];
+        let _: () = msg_send![&sleep_switch, setAccessibilityLabel: &*NSString::from_str("Use a different brightness during sleep")];
+    }
+    p_led.addSubview(&sleep_slider);
+    p_led.addSubview(&sleep_percent);
+    p_led.addSubview(&hint(
+        mtm,
+        "0% = off. Normal settings resume on wake. Screen sleep alone has no effect.",
+        prect(595.0, 18.0, INSET, CONTENT_WIDTH),
+    ));
 
     // ── Pane 2: General ─────────────────────────────────────────────────
     let p_gen = pane(mtm);
@@ -956,6 +1009,9 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         led_slider,
         led_percent,
         led_status,
+        sleep_switch,
+        sleep_slider,
+        sleep_percent,
         led_preview_on,
         led_preview_off,
         #[cfg(debug_assertions)]
@@ -1079,6 +1135,32 @@ fn populate(handler: &Handler) {
     set_state(&r.hide, preferences::load_hide_icon());
     set_state(&r.api, preferences::api_enabled());
     set_state(&r.diagnostics, preferences::diagnostics_enabled());
+    let sleep = preferences::load_sleep_settings();
+    set_state(&r.sleep_switch, sleep.enabled);
+    r.sleep_slider
+        .setDoubleValue(f64::from(sleep.brightness_pct));
+    refresh_sleep_controls(r, sleep);
+}
+
+fn refresh_sleep_controls(r: &SettingsRefs, sleep: preferences::SleepSettings) {
+    r.sleep_slider.setEnabled(sleep.enabled);
+    r.sleep_percent
+        .setStringValue(&NSString::from_str(&format!("{}%", sleep.brightness_pct)));
+}
+
+/// Persist the sleep override independently of the automation Apply button.
+pub fn save_sleep(handler: &Handler) {
+    let refs = handler.ivars().settings.borrow();
+    let Some(r) = refs.as_ref() else { return };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // rounded and clamped to 0..=100
+    let brightness_pct = r.sleep_slider.doubleValue().clamp(0.0, 100.0).round() as u8;
+    let sleep = preferences::SleepSettings {
+        enabled: is_on(&r.sleep_switch),
+        brightness_pct,
+    };
+    preferences::save_sleep_settings(sleep);
+    refresh_sleep_controls(r, sleep);
 }
 
 /// Keep the window's primary controls and device preview aligned with the

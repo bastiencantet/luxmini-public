@@ -31,6 +31,7 @@ physical validation on the new hardware is still pending.
 
 - **Off / On** and **brightness** for the front LED.
 - **Auto-dim**: lower the LED at a chosen time or turn it off after sunset.
+- **Sleep brightness (beta)**: choose a fixed 0–100% level in Settings → LED, with a feature-specific bug report button. Off by default.
 - **Three presets**: restore a saved power, brightness, and effect state.
 - **Multi-model**: Mac mini and community-tested Mac Studio profiles, with a
   reversible visual test for recognised hardware awaiting physical validation.

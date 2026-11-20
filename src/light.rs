@@ -41,6 +41,11 @@ pub struct LightState {
     manual_brightness: u8,
     effect_stop: Option<Arc<AtomicBool>>,
     current_effect: Option<Effect>,
+    sleep: Option<SleepState>,
+}
+
+struct SleepState {
+    effect: Option<Effect>,
 }
 
 const fn resolve_auto(target: Option<u8>, manual_on: bool, manual_brightness: u8) -> (u8, bool) {
@@ -78,6 +83,7 @@ impl LightState {
             },
             effect_stop: None,
             current_effect: None,
+            sleep: None,
         }
     }
 
@@ -94,6 +100,7 @@ impl LightState {
             manual_brightness: 255,
             effect_stop: None,
             current_effect: None,
+            sleep: None,
         }
     }
 
@@ -110,7 +117,14 @@ impl LightState {
         self.output.is_some() && self.access == LightAccess::Ready
     }
 
+    pub const fn is_sleeping(&self) -> bool {
+        self.sleep.is_some()
+    }
+
     pub fn check_health(&mut self) {
+        if self.sleep.is_some() {
+            return;
+        }
         let restore = if self.current_effect.is_some() {
             self.manual_brightness_if_on()
         } else {
@@ -207,7 +221,7 @@ impl LightState {
 
     fn apply_effect_frame(&mut self, value: u8, stop: &AtomicBool) {
         // Cancellation is rechecked while holding STATE, after any newer command.
-        if !stop.load(Ordering::Acquire) {
+        if self.sleep.is_none() && !stop.load(Ordering::Acquire) {
             self.write(value);
         }
     }
@@ -228,6 +242,9 @@ impl LightState {
     }
 
     pub fn start_effect(&mut self, effect: Effect) {
+        if self.sleep.is_some() {
+            return;
+        }
         self.stop_effect();
         if !self.write(0xff) {
             return;
@@ -240,6 +257,9 @@ impl LightState {
     }
 
     pub fn clear_effect(&mut self) {
+        if self.sleep.is_some() {
+            return;
+        }
         self.stop_effect();
         // Return the LED to the user's manual intent, not the live transient value.
         let v = if self.manual_on {
@@ -268,7 +288,10 @@ impl LightState {
         preferences::Preset {
             brightness: self.manual_brightness,
             is_on: self.manual_on,
-            effect: self.current_effect,
+            effect: match &self.sleep {
+                Some(sleep) => sleep.effect,
+                None => self.current_effect,
+            },
         }
     }
 
@@ -282,6 +305,9 @@ impl LightState {
 
     #[allow(clippy::trivially_copy_pass_by_ref)] // mirrors preferences::save_*(&Preset) for call-site symmetry
     pub fn apply_preset(&mut self, p: &preferences::Preset) {
+        if self.sleep.is_some() {
+            return;
+        }
         self.stop_effect();
         let manual_brightness = if p.brightness > 0 {
             p.brightness
@@ -309,6 +335,9 @@ impl LightState {
     }
 
     pub fn set_brightness(&mut self, value: u8) {
+        if self.sleep.is_some() {
+            return;
+        }
         self.stop_effect();
         if !self.write(value) {
             return;
@@ -325,6 +354,14 @@ impl LightState {
     /// Apply an auto-dim decision (transient: never updates the manual baseline or persists).
     /// `Some(v)` forces brightness `v` (0 = off); `None` restores the user's manual intent.
     pub fn apply_auto(&mut self, target: Option<u8>) {
+        if self.sleep.is_some() {
+            return;
+        }
+        // A passive daytime tick must not immediately cancel an effect that
+        // wake just resumed. Only an active automation rule takes it over.
+        if target.is_none() && self.current_effect.is_some() {
+            return;
+        }
         let had_effect = self.current_effect.is_some();
         self.stop_effect(); // an active rule takes over any running effect
         let (v, on) = resolve_auto(target, self.manual_on, self.manual_brightness);
@@ -340,6 +377,9 @@ impl LightState {
     }
 
     pub fn set_on(&mut self, on: bool) {
+        if self.sleep.is_some() {
+            return;
+        }
         self.stop_effect();
         if on {
             let v = if self.manual_brightness == 0 {
@@ -363,6 +403,46 @@ impl LightState {
             self.brightness = 0;
         }
         self.persist();
+    }
+
+    /// Apply a transient sleep level while serializing against all other writers.
+    /// Even a rejected write keeps the barrier until wake, without changing intent.
+    pub fn enter_sleep(&mut self, settings: preferences::SleepSettings) {
+        if !settings.enabled || self.sleep.is_some() {
+            return;
+        }
+        self.sleep = Some(SleepState {
+            effect: self.current_effect,
+        });
+        self.stop_effect();
+        let value = settings.brightness();
+        if self.write(value) {
+            self.brightness = value;
+            self.is_on = value > 0;
+        }
+    }
+
+    /// Restore current rules or manual intent. Force the write because firmware
+    /// may have reset the output while asleep. Duplicate wake events do nothing.
+    pub fn leave_sleep(&mut self, target: Option<u8>) {
+        let Some(sleep) = self.sleep.take() else {
+            return;
+        };
+        let (value, on) = resolve_auto(target, self.manual_on, self.manual_brightness);
+        if target.is_none() {
+            if let Some(effect) = sleep.effect {
+                self.start_effect(effect);
+                if self.control_error.is_none() {
+                    self.brightness = value;
+                    self.is_on = on;
+                }
+                return;
+            }
+        }
+        if self.write(value) {
+            self.brightness = value;
+            self.is_on = on;
+        }
     }
 }
 
@@ -675,6 +755,166 @@ mod tests {
         assert_eq!(resolve_auto(Some(51), false, 200), (51, true));
         assert_eq!(resolve_auto(None, true, 200), (200, true));
         assert_eq!(resolve_auto(None, false, 200), (0, false));
+    }
+
+    #[test]
+    fn disabled_sleep_does_not_write_or_interrupt_an_effect() -> io::Result<()> {
+        let output = probe(LightKind::FrontLed);
+        let writes = output.writes.clone();
+        let mut state = LightState::with_output(Box::new(output), Persistence::SessionOnly);
+        state.current_effect = Some(Effect::Pulse);
+        let stop = Arc::new(AtomicBool::new(false));
+        state.effect_stop = Some(stop.clone());
+        state.enter_sleep(preferences::SleepSettings::default());
+        state.leave_sleep(Some(0));
+        assert!(!stop.load(Ordering::Acquire));
+        assert_eq!(state.current_effect, Some(Effect::Pulse));
+        assert!(writes
+            .lock()
+            .map_err(|_| io::Error::other("probe lock"))?
+            .is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn sleep_blocks_stale_effects_schedules_and_commands_without_changing_intent() -> io::Result<()>
+    {
+        for kind in [LightKind::FrontLed, LightKind::RearLogo] {
+            let output = probe(kind);
+            let writes = output.writes.clone();
+            let mut state = LightState::with_output(Box::new(output), Persistence::SessionOnly);
+            state.set_brightness(153);
+            let stop = Arc::new(AtomicBool::new(false));
+            state.current_effect = Some(Effect::Pulse);
+            state.effect_stop = Some(stop.clone());
+            state.enter_sleep(preferences::SleepSettings {
+                enabled: true,
+                brightness_pct: 5,
+            });
+            assert!(stop.load(Ordering::Acquire));
+            assert_eq!(state.brightness, 13);
+            assert_eq!(state.capture_preset().brightness, 153);
+            assert_eq!(state.capture_preset().effect, Some(Effect::Pulse));
+            state.apply_effect_frame(255, &stop);
+            state.apply_auto(Some(51));
+            state.set_brightness(200);
+            state.set_on(false);
+            state.start_effect(Effect::Strobe);
+            state.clear_effect();
+            state.apply_preset(&preferences::Preset {
+                brightness: 200,
+                is_on: true,
+                effect: None,
+            });
+            state.check_health();
+            state.enter_sleep(preferences::SleepSettings {
+                enabled: true,
+                brightness_pct: 0,
+            });
+            assert_eq!(state.brightness, 13);
+            assert_eq!(state.capture_preset().brightness, 153);
+            assert_eq!(state.capture_preset().effect, Some(Effect::Pulse));
+            state.leave_sleep(Some(51)); // current night rule takes precedence over the old effect
+            assert_eq!(state.brightness, 51);
+            assert_eq!(state.current_effect, None);
+            state.leave_sleep(Some(0)); // duplicate wake cannot change the restored result
+            assert_eq!(
+                *writes.lock().map_err(|_| io::Error::other("probe lock"))?,
+                vec![153, 13, 51]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn sleep_restores_manual_on_off_and_forces_a_wake_write() -> io::Result<()> {
+        for on in [false, true] {
+            for percent in [0, 5, 100] {
+                let output = probe(LightKind::FrontLed);
+                let writes = output.writes.clone();
+                let mut state = LightState::with_output(Box::new(output), Persistence::SessionOnly);
+                state.set_brightness(153);
+                state.set_on(on);
+                let settings = preferences::SleepSettings {
+                    enabled: true,
+                    brightness_pct: percent,
+                };
+                state.enter_sleep(settings);
+                assert_eq!(state.brightness, settings.brightness());
+                state.leave_sleep(None);
+                let normal = if on { 153 } else { 0 };
+                assert_eq!(state.brightness, normal);
+                assert_eq!(state.is_on, on);
+                assert_eq!(state.capture_preset().brightness, 153);
+                assert_eq!(state.capture_preset().is_on, on);
+                assert_eq!(
+                    *writes.lock().map_err(|_| io::Error::other("probe lock"))?,
+                    vec![153, normal, settings.brightness(), normal]
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn sleep_resumes_the_previous_effect_only_when_no_rule_takes_control() {
+        for effect in [
+            Effect::Blink,
+            Effect::BlinkFast,
+            Effect::Pulse,
+            Effect::Sos,
+            Effect::Strobe,
+        ] {
+            let mut state = LightState::with_output(
+                Box::new(probe(LightKind::FrontLed)),
+                Persistence::SessionOnly,
+            );
+            state.set_brightness(90);
+            state.current_effect = Some(effect);
+            state.effect_stop = Some(Arc::new(AtomicBool::new(false)));
+            state.enter_sleep(preferences::SleepSettings {
+                enabled: true,
+                brightness_pct: 0,
+            });
+            state.leave_sleep(None);
+            state.apply_auto(None); // the wake scheduler kick must preserve the resumed effect
+            assert_eq!(state.current_effect, Some(effect));
+            assert_eq!(state.brightness, 90);
+            assert_eq!(state.capture_preset().brightness, 90);
+            assert!(state.is_ready());
+        }
+    }
+
+    #[test]
+    fn rejected_sleep_and_wake_writes_preserve_intent_and_surface_errors() {
+        let output = probe(LightKind::FrontLed);
+        let reject = output.reject.clone();
+        let mut state = LightState::with_output(Box::new(output), Persistence::SessionOnly);
+        state.set_brightness(90);
+        reject.store(true, Ordering::Relaxed);
+        state.enter_sleep(preferences::SleepSettings {
+            enabled: true,
+            brightness_pct: 0,
+        });
+        assert_eq!(state.brightness, 90);
+        assert!(state.sleep.is_some());
+        assert!(!state.is_ready());
+        state.apply_auto(Some(255));
+        state.leave_sleep(None); // the driver's bounded recovery can restore the normal state
+        assert_eq!(state.brightness, 90);
+        assert!(state.is_ready());
+        state.enter_sleep(preferences::SleepSettings {
+            enabled: true,
+            brightness_pct: 0,
+        });
+        reject.store(true, Ordering::Relaxed);
+        state.leave_sleep(None);
+        assert_eq!(state.brightness, 0); // do not pretend the failed restoration succeeded
+        assert_eq!(state.capture_preset().brightness, 90);
+        assert!(state.take_control_error().is_some());
+        assert!(!state.is_ready());
+        state.set_brightness(90); // normal manual control works again after wake
+        assert!(state.is_ready());
     }
 
     #[cfg(feature = "field-test")]

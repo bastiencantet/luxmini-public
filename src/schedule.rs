@@ -174,7 +174,31 @@ fn evaluate_and_apply(handle: &SchedHandle) {
     if !dim.enabled {
         return;
     }
-    let Some(now) = local_now() else { return };
+    crate::light::with_state(|s| {
+        // A replaced or disabled scheduler may have been waiting for the
+        // controller while another thread stopped it. Never apply that tick.
+        if handle.stop.load(Ordering::Acquire)
+            || epoch_now() < MANUAL_OVERRIDE_UNTIL.load(Ordering::Relaxed)
+        {
+            return;
+        }
+        // Resolve under the same lock as sleep/wake so a tick suspended before
+        // sleep cannot apply yesterday's target after wake has restored state.
+        s.apply_auto(current_target());
+    });
+}
+
+/// Recompute wake behavior using the current clock and existing manual grace.
+/// Disabled rules or a manual override restore the user's normal intent.
+pub fn current_target() -> Option<u8> {
+    if epoch_now() < MANUAL_OVERRIDE_UNTIL.load(Ordering::Relaxed) {
+        return None;
+    }
+    let dim = preferences::load_autodim();
+    if !dim.enabled {
+        return None;
+    }
+    let now = local_now()?;
     let loc = location(now.utc_offset_min);
     let st = crate::sun::sun_times(
         now.year,
@@ -184,17 +208,7 @@ fn evaluate_and_apply(handle: &SchedHandle) {
         loc.lon,
         now.utc_offset_min,
     );
-    let target = evaluate(dim, now.minute, st.sunset, st.sunrise);
-    crate::light::with_state(|s| {
-        // A replaced or disabled scheduler may have been calculating a sunset
-        // while another thread stopped it. Never apply that stale result.
-        if handle.stop.load(Ordering::Acquire)
-            || epoch_now() < MANUAL_OVERRIDE_UNTIL.load(Ordering::Relaxed)
-        {
-            return;
-        }
-        s.apply_auto(target);
-    });
+    evaluate(dim, now.minute, st.sunset, st.sunrise)
 }
 
 fn location(utc_offset_min: i32) -> Location {

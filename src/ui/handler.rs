@@ -166,10 +166,30 @@ define_class!(
             self.sync_autodim_menu();
         }
 
-        // NSWorkspaceDidWakeNotification: re-evaluate the schedule the instant the Mac wakes.
+        // System sleep only: display sleep never changes the light.
+        #[unsafe(method(workspaceWillSleep:))]
+        fn workspace_will_sleep(&self, _note: &AnyObject) {
+            let settings = preferences::load_sleep_settings();
+            with_state(|s| s.enter_sleep(settings));
+        }
+
         #[unsafe(method(workspaceDidWake:))]
         fn workspace_did_wake(&self, _note: &AnyObject) {
+            with_state(|s| s.leave_sleep(schedule::current_target()));
             schedule::kick();
+            self.refresh_ui();
+        }
+
+        #[unsafe(method(saveSleepSettings:))]
+        fn save_sleep_settings(&self, _sender: &AnyObject) {
+            settings::save_sleep(self);
+        }
+
+        #[unsafe(method(reportSleepBug:))]
+        fn report_sleep_bug(&self, _sender: &AnyObject) {
+            let sleep = preferences::load_sleep_settings();
+            let url = sleep_feedback_url(env!("CARGO_PKG_VERSION"), &crate::compat::get_mac_model(), sleep);
+            open_url(&url);
         }
 
         // NSMenuDelegate: refresh the controls to the live state whenever the menu opens
@@ -854,6 +874,19 @@ fn open_feedback() {
     open_url(&url);
 }
 
+fn sleep_feedback_url(version: &str, model: &str, sleep: preferences::SleepSettings) -> String {
+    let title = "[Bug] Mac sleep brightness (beta)";
+    let body = format!(
+        "## Mac sleep brightness (beta)\n\nApp version: {version}\nMac model: {model}\nSleep override enabled: {}\nSleep brightness: {}%\n\n## What happened?\n\nDescribe what happened when the Mac went to sleep or woke up.\n\n## Expected behavior\n\n\n## Steps to reproduce\n\n1. \n",
+        sleep.enabled, sleep.brightness_pct,
+    );
+    format!(
+        "https://github.com/bastiencantet/luxmini-public/issues/new?title={}&body={}",
+        urlencode(title),
+        urlencode(&body)
+    )
+}
+
 /// Minimal percent-encoding for a query-parameter value (keeps it dependency-free).
 fn urlencode(s: &str) -> String {
     fn hex_digit(n: u8) -> char {
@@ -936,5 +969,26 @@ fn show_about_panel(mtm: MainThreadMarker) {
         let _: () = msg_send![dict, setObject: &*credits, forKey: &*credits_key];
 
         let _: () = msg_send![&app, orderFrontStandardAboutPanelWithOptions: dict];
+    }
+}
+
+#[cfg(test)]
+mod sleep_feedback_tests {
+    #[test]
+    fn report_targets_sleep_feature_and_encodes_diagnostic_fields() {
+        let url = super::sleep_feedback_url(
+            "0.5.2",
+            "Mac18,5",
+            crate::preferences::SleepSettings {
+                enabled: true,
+                brightness_pct: 5,
+            },
+        );
+        assert!(url.starts_with("https://github.com/bastiencantet/luxmini-public/issues/new?"));
+        assert!(url.contains("title=%5BBug%5D%20Mac%20sleep%20brightness%20%28beta%29"));
+        assert!(url.contains("App%20version%3A%200.5.2"));
+        assert!(url.contains("Mac%20model%3A%20Mac18%2C5"));
+        assert!(url.contains("Sleep%20brightness%3A%205%25"));
+        assert!(!url.contains('\n'));
     }
 }
