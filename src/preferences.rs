@@ -24,6 +24,37 @@ pub struct Preset {
     pub effect: Option<Effect>,
 }
 
+/// Independent, opt-in system sleep override. Display sleep is unrelated.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SleepSettings {
+    pub enabled: bool,
+    pub brightness_pct: u8,
+}
+
+impl SleepSettings {
+    pub fn brightness(self) -> u8 {
+        let percent = u16::from(self.brightness_pct.min(100));
+        #[allow(clippy::cast_possible_truncation)] // clamped percentage maps to 0..=255
+        let value = ((percent * 255 + 50) / 100) as u8;
+        value
+    }
+}
+
+pub fn load_sleep_settings() -> SleepSettings {
+    SleepSettings {
+        enabled: get_bool("sleep.enabled"),
+        brightness_pct: clamp_pct(get_int("sleep.brightness_pct")),
+    }
+}
+
+pub fn save_sleep_settings(settings: SleepSettings) {
+    set_bool("sleep.enabled", settings.enabled);
+    set_int(
+        "sleep.brightness_pct",
+        i64::from(settings.brightness_pct.min(100)),
+    );
+}
+
 pub fn load_preset(slot: u8) -> Option<Preset> {
     let prefix = format!("preset.{slot}");
     if !get_bool(&format!("{prefix}.set")) {
@@ -462,6 +493,23 @@ fn get_str(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{clamp_brightness, effect_from_str, effect_to_str};
+    #[test]
+    fn sleep_settings_default_to_opt_out_and_map_percentages_safely() {
+        let default = super::SleepSettings::default();
+        assert!(!default.enabled);
+        assert_eq!(default.brightness(), 0);
+        for (percent, expected) in [(0, 0), (5, 13), (50, 128), (100, 255), (255, 255)] {
+            assert_eq!(
+                super::SleepSettings {
+                    enabled: true,
+                    brightness_pct: percent
+                }
+                .brightness(),
+                expected
+            );
+        }
+    }
+
     use crate::light::Effect;
 
     #[test]

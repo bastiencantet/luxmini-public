@@ -241,7 +241,20 @@ fn apply(body: &str) -> ApplyResult {
     let Some(command) = parse_request(body) else {
         return ApplyResult::Invalid;
     };
-    let succeeded = light::with_state(|state| match command {
+    let succeeded = light::with_state(|state| apply_command(state, command));
+    if succeeded == Some(true) {
+        ApplyResult::Applied
+    } else {
+        ApplyResult::Unavailable
+    }
+}
+
+fn apply_command(state: &mut light::LightState, command: LightRequest) -> bool {
+    // A sleeping controller ignores writes. Never acknowledge them as applied.
+    if state.is_sleeping() {
+        return false;
+    }
+    match command {
         LightRequest::Effect(Some(effect)) => {
             state.start_effect(effect);
             !state.control_failed()
@@ -264,11 +277,6 @@ fn apply(body: &str) -> ApplyResult {
             state.set_brightness(value);
             first_succeeded && !state.control_failed()
         }
-    });
-    if succeeded == Some(true) {
-        ApplyResult::Applied
-    } else {
-        ApplyResult::Unavailable
     }
 }
 
@@ -293,6 +301,41 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<(
 #[cfg(test)]
 mod tests {
     use super::{apply, parse_request, ApplyResult, LightRequest};
+
+    #[test]
+    fn sleeping_output_does_not_acknowledge_ignored_api_commands() {
+        use crate::{light, output, preferences};
+        use std::sync::{
+            atomic::{AtomicU8, Ordering},
+            Arc,
+        };
+
+        let value = Arc::new(AtomicU8::new(0));
+        let mut state = light::LightState::with_output(
+            output::simulated(output::LightKind::FrontLed, value.clone()),
+            light::Persistence::SessionOnly,
+        );
+        state.enter_sleep(preferences::SleepSettings {
+            enabled: true,
+            brightness_pct: 0,
+        });
+        for command in [
+            LightRequest::On(true),
+            LightRequest::Brightness(100),
+            LightRequest::OnAndBrightness(true, 200),
+            LightRequest::Effect(Some(light::Effect::Pulse)),
+            LightRequest::Effect(None),
+        ] {
+            assert!(!super::apply_command(&mut state, command));
+            assert_eq!(value.load(Ordering::Relaxed), 0);
+        }
+        state.leave_sleep(None);
+        assert!(super::apply_command(
+            &mut state,
+            LightRequest::Brightness(100)
+        ));
+        assert_eq!(value.load(Ordering::Relaxed), 100);
+    }
 
     #[test]
     fn reports_both_devices_with_the_same_control_schema() -> Result<(), serde_json::Error> {

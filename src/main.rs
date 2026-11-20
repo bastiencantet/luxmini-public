@@ -52,6 +52,7 @@ fn main() {
     };
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    ui::application_menu::install(mtm);
 
     if let Some(kind) = simulator::requested_kind() {
         simulator::run(mtm, kind);

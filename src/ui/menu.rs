@@ -395,7 +395,7 @@ pub fn build_app(mtm: MainThreadMarker) -> App {
     handler.sync_launch_at_login_checkmark();
     handler.sync_autodim_menu();
 
-    // Handler is the menu delegate (menuWillOpen: refreshes controls) and observes system wake.
+    // Handler is the menu delegate and observes system sleep/wake only.
     // SAFETY: setDelegate: takes an NSMenuDelegate (Handler implements menuWillOpen:, outlives the
     // menu); addObserver:selector:name:object: registers it for the wake notification by name.
     unsafe {
@@ -405,14 +405,22 @@ pub fn build_app(mtm: MainThreadMarker) -> App {
             if !ws.is_null() {
                 let nc: *mut AnyObject = msg_send![ws, notificationCenter];
                 if !nc.is_null() {
-                    let name = NSString::from_str("NSWorkspaceDidWakeNotification");
-                    let _: () = msg_send![
-                        nc,
-                        addObserver: &*handler,
-                        selector: sel!(workspaceDidWake:),
-                        name: &*name,
-                        object: std::ptr::null::<AnyObject>(),
-                    ];
+                    for (name, action) in [
+                        (
+                            "NSWorkspaceWillSleepNotification",
+                            sel!(workspaceWillSleep:),
+                        ),
+                        ("NSWorkspaceDidWakeNotification", sel!(workspaceDidWake:)),
+                    ] {
+                        let name = NSString::from_str(name);
+                        let _: () = msg_send![
+                            nc,
+                            addObserver: &*handler,
+                            selector: action,
+                            name: &*name,
+                            object: std::ptr::null::<AnyObject>(),
+                        ];
+                    }
                 }
             }
         }
