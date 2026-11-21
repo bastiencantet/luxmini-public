@@ -315,7 +315,7 @@ mod tests {
             output::simulated(output::LightKind::FrontLed, value.clone()),
             light::Persistence::SessionOnly,
         );
-        state.enter_sleep(preferences::SleepSettings {
+        let _ = state.enter_sleep(preferences::SleepSettings {
             enabled: true,
             brightness_pct: 0,
         });
@@ -329,7 +329,7 @@ mod tests {
             assert!(!super::apply_command(&mut state, command));
             assert_eq!(value.load(Ordering::Relaxed), 0);
         }
-        state.leave_sleep(None);
+        let _ = state.leave_sleep(None);
         assert!(super::apply_command(
             &mut state,
             LightRequest::Brightness(100)

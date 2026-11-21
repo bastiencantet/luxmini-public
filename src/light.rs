@@ -407,27 +407,27 @@ impl LightState {
 
     /// Apply a transient sleep level while serializing against all other writers.
     /// Even a rejected write keeps the barrier until wake, without changing intent.
-    pub fn enter_sleep(&mut self, settings: preferences::SleepSettings) {
+    pub fn enter_sleep(&mut self, settings: preferences::SleepSettings) -> Option<bool> {
         if !settings.enabled || self.sleep.is_some() {
-            return;
+            return None;
         }
         self.sleep = Some(SleepState {
             effect: self.current_effect,
         });
         self.stop_effect();
         let value = settings.brightness();
-        if self.write(value) {
+        let applied = self.write(value);
+        if applied {
             self.brightness = value;
             self.is_on = value > 0;
         }
+        Some(applied)
     }
 
     /// Restore current rules or manual intent. Force the write because firmware
     /// may have reset the output while asleep. Duplicate wake events do nothing.
-    pub fn leave_sleep(&mut self, target: Option<u8>) {
-        let Some(sleep) = self.sleep.take() else {
-            return;
-        };
+    pub fn leave_sleep(&mut self, target: Option<u8>) -> Option<bool> {
+        let sleep = self.sleep.take()?;
         let (value, on) = resolve_auto(target, self.manual_on, self.manual_brightness);
         if target.is_none() {
             if let Some(effect) = sleep.effect {
@@ -436,13 +436,15 @@ impl LightState {
                     self.brightness = value;
                     self.is_on = on;
                 }
-                return;
+                return Some(self.control_error.is_none());
             }
         }
-        if self.write(value) {
+        let restored = self.write(value);
+        if restored {
             self.brightness = value;
             self.is_on = on;
         }
+        Some(restored)
     }
 }
 
@@ -765,8 +767,8 @@ mod tests {
         state.current_effect = Some(Effect::Pulse);
         let stop = Arc::new(AtomicBool::new(false));
         state.effect_stop = Some(stop.clone());
-        state.enter_sleep(preferences::SleepSettings::default());
-        state.leave_sleep(Some(0));
+        let _ = state.enter_sleep(preferences::SleepSettings::default());
+        let _ = state.leave_sleep(Some(0));
         assert!(!stop.load(Ordering::Acquire));
         assert_eq!(state.current_effect, Some(Effect::Pulse));
         assert!(writes
@@ -787,7 +789,7 @@ mod tests {
             let stop = Arc::new(AtomicBool::new(false));
             state.current_effect = Some(Effect::Pulse);
             state.effect_stop = Some(stop.clone());
-            state.enter_sleep(preferences::SleepSettings {
+            let _ = state.enter_sleep(preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 5,
             });
@@ -807,17 +809,17 @@ mod tests {
                 effect: None,
             });
             state.check_health();
-            state.enter_sleep(preferences::SleepSettings {
+            let _ = state.enter_sleep(preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 0,
             });
             assert_eq!(state.brightness, 13);
             assert_eq!(state.capture_preset().brightness, 153);
             assert_eq!(state.capture_preset().effect, Some(Effect::Pulse));
-            state.leave_sleep(Some(51)); // current night rule takes precedence over the old effect
+            let _ = state.leave_sleep(Some(51)); // current night rule takes precedence over the old effect
             assert_eq!(state.brightness, 51);
             assert_eq!(state.current_effect, None);
-            state.leave_sleep(Some(0)); // duplicate wake cannot change the restored result
+            let _ = state.leave_sleep(Some(0)); // duplicate wake cannot change the restored result
             assert_eq!(
                 *writes.lock().map_err(|_| io::Error::other("probe lock"))?,
                 vec![153, 13, 51]
@@ -839,9 +841,9 @@ mod tests {
                     enabled: true,
                     brightness_pct: percent,
                 };
-                state.enter_sleep(settings);
+                let _ = state.enter_sleep(settings);
                 assert_eq!(state.brightness, settings.brightness());
-                state.leave_sleep(None);
+                let _ = state.leave_sleep(None);
                 let normal = if on { 153 } else { 0 };
                 assert_eq!(state.brightness, normal);
                 assert_eq!(state.is_on, on);
@@ -872,11 +874,11 @@ mod tests {
             state.set_brightness(90);
             state.current_effect = Some(effect);
             state.effect_stop = Some(Arc::new(AtomicBool::new(false)));
-            state.enter_sleep(preferences::SleepSettings {
+            let _ = state.enter_sleep(preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 0,
             });
-            state.leave_sleep(None);
+            let _ = state.leave_sleep(None);
             state.apply_auto(None); // the wake scheduler kick must preserve the resumed effect
             assert_eq!(state.current_effect, Some(effect));
             assert_eq!(state.brightness, 90);
@@ -892,7 +894,7 @@ mod tests {
         let mut state = LightState::with_output(Box::new(output), Persistence::SessionOnly);
         state.set_brightness(90);
         reject.store(true, Ordering::Relaxed);
-        state.enter_sleep(preferences::SleepSettings {
+        let _ = state.enter_sleep(preferences::SleepSettings {
             enabled: true,
             brightness_pct: 0,
         });
@@ -900,15 +902,15 @@ mod tests {
         assert!(state.sleep.is_some());
         assert!(!state.is_ready());
         state.apply_auto(Some(255));
-        state.leave_sleep(None); // the driver's bounded recovery can restore the normal state
+        let _ = state.leave_sleep(None); // the driver's bounded recovery can restore the normal state
         assert_eq!(state.brightness, 90);
         assert!(state.is_ready());
-        state.enter_sleep(preferences::SleepSettings {
+        let _ = state.enter_sleep(preferences::SleepSettings {
             enabled: true,
             brightness_pct: 0,
         });
         reject.store(true, Ordering::Relaxed);
-        state.leave_sleep(None);
+        let _ = state.leave_sleep(None);
         assert_eq!(state.brightness, 0); // do not pretend the failed restoration succeeded
         assert_eq!(state.capture_preset().brightness, 90);
         assert!(state.take_control_error().is_some());

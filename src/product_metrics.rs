@@ -4,6 +4,7 @@
 //! is random, app-specific, created only after fresh consent, and never used
 //! for profiles, hardware access, advertising, or Prometheus labels.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -12,18 +13,153 @@ use objc2_app_kit::{NSAlert, NSApplication, NSPasteboard};
 use objc2_foundation::{NSString, NSUUID};
 use serde::{Deserialize, Serialize};
 
+use crate::journey::{self, Record, Stage};
 use crate::{compat, i18n, preferences};
 
 #[cfg(debug_assertions)]
 #[path = "diagnostics_test.rs"]
 pub(crate) mod test_support;
 
-pub const CONSENT_VERSION: i64 = 1;
+pub const CONSENT_VERSION: i64 = 2;
 const DAY_SECONDS: i64 = 86_400;
 const BASE_URL: &str = "https://api.luxmini.bastiencantet.com/api/v1";
 static STATE_LOCK: Mutex<()> = Mutex::new(());
 static WORKER: OnceLock<Option<mpsc::SyncSender<Command>>> = OnceLock::new();
 static TIMER: OnceLock<()> = OnceLock::new();
+static SESSION: OnceLock<(String, &'static str)> = OnceLock::new();
+static SESSION_FINISHED: AtomicBool = AtomicBool::new(false);
+
+/// Best-effort graceful-exit observation. Forced termination cannot be detected.
+pub struct SessionGuard;
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        finish_session();
+    }
+}
+
+/// `AppKit` termination exits without unwinding the main Rust stack. Use its
+/// delegate callback as well as the guard for early returns from setup.
+pub fn finish_session() {
+    if SESSION_FINISHED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    record(Stage::AppExited);
+    let (sender, receiver) = mpsc::channel();
+    if let Some(Some(worker)) = WORKER.get() {
+        if worker.try_send(Command::Barrier(sender)).is_ok() {
+            let _ = receiver.recv_timeout(Duration::from_secs(2));
+        }
+    }
+}
+
+pub fn begin_session(device: crate::output::DeviceInfo) -> SessionGuard {
+    if !cfg!(feature = "field-test") && !device.simulated {
+        SESSION.get_or_init(|| (random_id(), device.kind.as_str()));
+    }
+    start();
+    SessionGuard
+}
+
+fn random_id() -> String {
+    NSUUID::new().UUIDString().to_string().to_ascii_lowercase()
+}
+
+/// Persist before enqueueing so quitting during onboarding does not lose a
+/// consented stage. No hardware values or error text enter the payload.
+pub fn record(milestone: Stage) {
+    record_event(milestone, None);
+}
+
+/// Created only for consented diagnostics, never for hardware control itself.
+pub struct SleepCycle {
+    id: String,
+    installation_id: String,
+}
+
+pub fn begin_sleep_cycle(applied: bool) -> Option<SleepCycle> {
+    if cfg!(feature = "field-test")
+        || SESSION.get().is_none()
+        || !preferences::diagnostics_enabled()
+    {
+        return None;
+    }
+    let installation_id = {
+        let _guard = STATE_LOCK.lock().ok()?;
+        load_state()?.installation_id
+    };
+    let cycle = SleepCycle {
+        id: random_id(),
+        installation_id,
+    };
+    record_event(Stage::SleepStarted, Some(&cycle));
+    record_event(
+        if applied {
+            Stage::SleepApplied
+        } else {
+            Stage::SleepFailed
+        },
+        Some(&cycle),
+    );
+    Some(cycle)
+}
+
+pub fn finish_sleep_cycle(cycle: &SleepCycle, restored: bool) {
+    record_event(
+        if restored {
+            Stage::WakeRestored
+        } else {
+            Stage::WakeFailed
+        },
+        Some(cycle),
+    );
+}
+
+fn record_event(milestone: Stage, cycle: Option<&SleepCycle>) {
+    if cfg!(feature = "field-test") {
+        return;
+    }
+    let Some((session_id, device_kind)) = SESSION.get() else {
+        return;
+    };
+    let Ok(guard) = STATE_LOCK.lock() else { return };
+    if !preferences::diagnostics_enabled() {
+        return;
+    }
+    let Some(mut state) = load_state() else {
+        return;
+    };
+    // Withdrawal followed by renewed consent must not carry a previous cycle
+    // or process-session identifier into the new installation identity.
+    if cycle.is_some_and(|cycle| cycle.installation_id != state.installation_id) {
+        return;
+    }
+    if state.journey_process.as_deref() != Some(session_id) {
+        state.journey_process = Some(session_id.clone());
+        state.journey_session = Some(random_id());
+        state.journey_seen.clear();
+    }
+    let Some(wire_session) = state.journey_session.clone() else {
+        return;
+    };
+    let event = Record {
+        session_id: wire_session,
+        device_kind: (*device_kind).into(),
+        app_version: current_version(),
+        stage: milestone,
+        cycle_id: cycle.map(|cycle| cycle.id.clone()),
+    };
+    if !journey::push(
+        &mut state.journey_outbox,
+        &mut state.journey_session,
+        &mut state.journey_seen,
+        event,
+    ) {
+        return;
+    }
+    save_state(&state);
+    drop(guard);
+    enqueue(Command::Activity);
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct State {
@@ -32,6 +168,14 @@ struct State {
     origin: Origin,
     last_version: Option<String>,
     last_day: Option<i64>,
+    #[serde(default)]
+    journey_outbox: Vec<Record>,
+    #[serde(default)]
+    journey_session: Option<String>,
+    #[serde(default)]
+    journey_seen: Vec<Stage>,
+    #[serde(default)]
+    journey_process: Option<String>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -59,12 +203,17 @@ struct Request<'a> {
     app_version: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     previous_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_kind: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cycle_id: Option<&'a str>,
 }
 
 enum Command {
     Activity,
     Erase(Erasure),
-    #[cfg(debug_assertions)]
     Barrier(mpsc::Sender<()>),
 }
 
@@ -109,7 +258,7 @@ fn apply_choice(accepted: bool, existing_install: bool) {
         preferences::reset_diagnostics_milestones();
     }
     let state = previous.unwrap_or_else(|| State {
-        installation_id: NSUUID::new().UUIDString().to_string().to_ascii_lowercase(),
+        installation_id: random_id(),
         model_id: metrics_model(),
         origin: if existing_install {
             Origin::Existing
@@ -118,6 +267,10 @@ fn apply_choice(accepted: bool, existing_install: bool) {
         },
         last_version: None,
         last_day: None,
+        journey_outbox: Vec::new(),
+        journey_session: None,
+        journey_seen: Vec::new(),
+        journey_process: None,
     });
     save_state(&state);
     preferences::save_diagnostics_consent(true);
@@ -151,16 +304,16 @@ fn consent_alert(mtm: MainThreadMarker) -> objc2::rc::Retained<NSAlert> {
         "Help improve LuxMini?",
         "Aider à améliorer LuxMini ?",
     )));
-    alert.setInformativeText(&NSString::from_str(i18n::s(
-        "These optional statistics help me track updates and fix bugs.\n\nWith your permission, LuxMini shares its versions, your Mac model, macOS major version, and usage and reliability data linked by a random ID. No serial number or LED settings.\n\nIt’s optional: LuxMini works without it. Stop sharing and request deletion anytime in Settings → General.\n\nPrivacy: luxmini.bastiencantet.com/docs#privacy",
-        "Ces statistiques facultatives m’aident à suivre les mises à jour et à corriger les bugs.\n\nAvec votre accord, LuxMini partage ses versions, votre modèle de Mac, la version majeure de macOS et des données d’usage et de fiabilité, liées par un identifiant aléatoire. Aucun numéro de série ni réglage de LED.\n\nC’est facultatif : LuxMini fonctionne aussi sans. Vous pouvez arrêter le partage et demander la suppression dans Réglages → Général.\n\nConfidentialité : luxmini.bastiencantet.com/docs#privacy",
-    )));
+    alert.setInformativeText(&NSString::from_str(
+        "With your permission, LuxMini reports app openings, setup and LED-test results, manual control errors, sleep/wake write results, and return activity. Random installation, session and sleep-cycle IDs link these reports across launches and updates. Reports include the Mac model, macOS major version and app version, but no serial number, account, location, brightness, schedule, raw error text or website visitor ID.
+
+LuxMini works if you decline. Turn this off in Settings > General to stop reporting and delete linked data.
+
+Privacy: luxmini.bastiencantet.com/docs#privacy",
+    ));
     // Refusal has the same interaction cost and is the default keyboard action.
-    alert.addButtonWithTitle(&NSString::from_str(i18n::s("No thanks", "Non merci")));
-    alert.addButtonWithTitle(&NSString::from_str(i18n::s(
-        "Allow statistics",
-        "Autoriser les statistiques",
-    )));
+    alert.addButtonWithTitle(&NSString::from_str("No detailed statistics"));
+    alert.addButtonWithTitle(&NSString::from_str("Allow detailed statistics"));
     alert
 }
 
@@ -220,6 +373,10 @@ pub fn start() {
     for erasure in pending_erasures() {
         enqueue(Command::Erase(erasure));
     }
+    record(Stage::AppOpened);
+    if preferences::load_sleep_settings().enabled {
+        record(Stage::SleepOptionEnabled);
+    }
     enqueue(Command::Activity);
     TIMER.get_or_init(|| {
         let _ = std::thread::Builder::new()
@@ -244,7 +401,6 @@ fn enqueue(command: Command) {
                     match command {
                         Command::Activity => activity(),
                         Command::Erase(erasure) => erase(&erasure),
-                        #[cfg(debug_assertions)]
                         Command::Barrier(sender) => {
                             let _ = sender.send(());
                         }
@@ -271,6 +427,11 @@ fn activity_kind(state: &State, version: &str, day: i64) -> Option<&'static str>
 }
 
 fn activity() {
+    report_activity();
+    flush_journey();
+}
+
+fn report_activity() {
     let state = {
         let Ok(_guard) = STATE_LOCK.lock() else {
             return;
@@ -280,7 +441,7 @@ fn activity() {
         }
         load_state()
     };
-    let Some(mut state) = state else { return };
+    let Some(state) = state else { return };
     let version = current_version();
     let day = utc_day();
     let Some(kind) = activity_kind(&state, &version, day) else {
@@ -300,6 +461,9 @@ fn activity() {
         consent_version: CONSENT_VERSION,
         app_version: Some(&version),
         previous_version: previous,
+        session_id: None,
+        device_kind: None,
+        cycle_id: None,
     };
     if !send(&request, true) {
         return;
@@ -314,9 +478,64 @@ fn activity() {
     {
         return;
     }
-    state.last_version = Some(version);
-    state.last_day = Some(state.last_day.map_or(day, |previous| previous.max(day)));
-    save_state(&state);
+    // Preserve any stages appended while the network request was in flight.
+    let Some(mut current) = load_state() else {
+        return;
+    };
+    current.last_version = Some(version);
+    current.last_day = Some(current.last_day.map_or(day, |previous| previous.max(day)));
+    save_state(&current);
+}
+
+fn flush_journey() {
+    let state = {
+        let Ok(_guard) = STATE_LOCK.lock() else {
+            return;
+        };
+        if !preferences::diagnostics_enabled() {
+            return;
+        }
+        load_state()
+    };
+    let Some(state) = state else { return };
+    if state.last_version.is_none() {
+        return;
+    }
+    for event in state.journey_outbox {
+        let request = Request {
+            event: "app_journey",
+            outcome: event.stage.as_str(),
+            model_id: &state.model_id,
+            macos_major: crate::telemetry::macos_major(),
+            installation_id: &state.installation_id,
+            consent_version: CONSENT_VERSION,
+            app_version: Some(&event.app_version),
+            previous_version: None,
+            session_id: Some(&event.session_id),
+            device_kind: Some(&event.device_kind),
+            cycle_id: event.cycle_id.as_deref(),
+        };
+        if !send(&request, true) {
+            break;
+        }
+        let Ok(_guard) = STATE_LOCK.lock() else {
+            return;
+        };
+        if !preferences::diagnostics_enabled() {
+            return;
+        }
+        let Some(mut current) =
+            load_state().filter(|item| item.installation_id == state.installation_id)
+        else {
+            return;
+        };
+        current.journey_outbox.retain(|pending| {
+            pending.session_id != event.session_id
+                || pending.stage != event.stage
+                || pending.cycle_id != event.cycle_id
+        });
+        save_state(&current);
+    }
 }
 
 fn erase(erasure: &Erasure) {
@@ -329,6 +548,9 @@ fn erase(erasure: &Erasure) {
         consent_version: CONSENT_VERSION,
         app_version: None,
         previous_version: None,
+        session_id: None,
+        device_kind: None,
+        cycle_id: None,
     };
     // Erasure is requested by the disabling action, not usage collection.
     if !send(&request, false) {
@@ -449,8 +671,23 @@ mod tests {
             origin,
             last_version: previous.map(str::to_owned),
             last_day: day,
+            journey_outbox: Vec::new(),
+            journey_session: None,
+            journey_seen: Vec::new(),
+            journey_process: None,
         }
     }
+    #[test]
+    fn existing_saved_state_migrates_without_inventing_past_journeys() -> serde_json::Result<()> {
+        let old = r#"{"installation_id":"synthetic","model_id":"Mac999,1","origin":"existing","last_version":"0.5.1","last_day":20000}"#;
+        let loaded: State = serde_json::from_str(old)?;
+        assert!(loaded.journey_outbox.is_empty());
+        assert!(loaded.journey_seen.is_empty());
+        assert!(loaded.journey_session.is_none());
+        assert_eq!(loaded.last_version.as_deref(), Some("0.5.1"));
+        Ok(())
+    }
+
     #[test]
     fn only_explicit_allow_response_accepts() {
         for response in [-1001, -1000, -1, 0, 1, 1000, 1002, isize::MAX] {
@@ -484,6 +721,9 @@ mod tests {
             consent_version: 1,
             app_version: None,
             previous_version: None,
+            session_id: None,
+            device_kind: None,
+            cycle_id: None,
         };
         let value = serde_json::to_value(request)?;
         assert_eq!(value.as_object().map(serde_json::Map::len), Some(6));

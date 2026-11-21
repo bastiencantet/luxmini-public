@@ -5,7 +5,9 @@ use objc2_app_kit::{NSAlert, NSApplication};
 use objc2_foundation::NSString;
 
 use crate::helper::Helper;
+use crate::journey::Stage;
 use crate::light::LightState;
+use crate::product_metrics::record;
 use crate::profile::{CandidateProfile, DeviceProfile};
 
 const FIRST_BUTTON: isize = 1000;
@@ -77,6 +79,7 @@ fn confirm_start(mtm: MainThreadMarker, model: &str) -> bool {
 
 fn fetch_candidates(mtm: MainThreadMarker, model: &str) -> Option<Vec<CandidateProfile>> {
     let Some(first) = DeviceProfile::fetch_candidate(model, 1) else {
+        record(Stage::ProfileUnavailable);
         alert(
             mtm,
             crate::i18n::s("No candidate available", "Aucun candidat disponible"),
@@ -90,6 +93,7 @@ fn fetch_candidates(mtm: MainThreadMarker, model: &str) -> Option<Vec<CandidateP
         return None;
     };
 
+    record(Stage::ProfileReady);
     let total = first.total.min(MAX_CANDIDATES);
     let mut candidates = vec![first];
     for slot in 2..=total {
@@ -107,6 +111,8 @@ fn test_candidate(
 ) -> Result<Option<(u8, DeviceProfile)>, ()> {
     let CandidateProfile { slot, profile, .. } = candidate;
     let mut helper = Helper::spawn_with_profile(Some(profile.clone())).map_err(|error| {
+        record(Stage::HelperFailed);
+        record(Stage::OnboardingFailed);
         eprintln!("candidate LED helper unavailable: {error}");
         let _ = DeviceProfile::report_validation(model, slot, "technical_error");
         alert(
@@ -120,9 +126,12 @@ fn test_candidate(
             None,
         );
     })?;
+    record(Stage::HelperReady);
     let saw_fade = match crate::welcome::confirm_candidate(mtm, model, &mut helper) {
         Ok(confirmed) => confirmed,
         Err(error) => {
+            record(Stage::LedTestFailed);
+            record(Stage::OnboardingFailed);
             eprintln!("candidate LED pattern {slot} failed: {error}");
             let _ = DeviceProfile::report_validation(model, slot, "technical_error");
             alert(
@@ -141,6 +150,11 @@ fn test_candidate(
             return Err(());
         }
     };
+    record(if saw_fade {
+        Stage::VisualConfirmed
+    } else {
+        Stage::VisualRejected
+    });
     let _ = DeviceProfile::report_validation(model, slot, if saw_fade { "yes" } else { "no" });
     Ok(saw_fade.then_some((slot, profile)))
 }
@@ -160,6 +174,7 @@ fn show_no_match(mtm: MainThreadMarker) {
 
 fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<LightState> {
     if !confirm_start(mtm, model) {
+        record(Stage::OnboardingCancelled);
         return None;
     }
     let candidates = fetch_candidates(mtm, model)?;
@@ -183,12 +198,15 @@ fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<Lig
     let helper = match Helper::spawn_with_profile(Some(selected.clone())) {
         Ok(helper) => helper,
         Err(error) => {
+            record(Stage::HelperFailed);
+            record(Stage::OnboardingFailed);
             eprintln!("selected LED helper unavailable: {error}");
             let _ = DeviceProfile::report_validation(model, selected_slot, "technical_error");
             return None;
         }
     };
     if let Err(error) = selected.cache_validated(model) {
+        record(Stage::OnboardingFailed);
         eprintln!("cannot cache validated candidate profile: {error}");
         let _ = DeviceProfile::report_validation(model, selected_slot, "technical_error");
         return None;
@@ -214,12 +232,21 @@ fn run_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<Lig
     ))
 }
 
+fn observed_discovery(mtm: MainThreadMarker, model: &str, manual: bool) -> Option<LightState> {
+    record(Stage::OnboardingStarted);
+    let result = run_discovery(mtm, model, manual);
+    if result.is_some() {
+        record(Stage::OnboardingCompleted);
+    }
+    result
+}
+
 pub fn run(mtm: MainThreadMarker, model: &str) -> Option<LightState> {
-    run_discovery(mtm, model, false)
+    observed_discovery(mtm, model, false)
 }
 
 pub fn run_manual(mtm: MainThreadMarker, model: &str) -> Option<LightState> {
-    run_discovery(mtm, model, true)
+    observed_discovery(mtm, model, true)
 }
 
 #[cfg(test)]

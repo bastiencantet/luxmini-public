@@ -21,6 +21,8 @@ struct Config {
     #[serde(default)]
     interactive: bool,
     #[serde(default)]
+    native_quit: bool,
+    #[serde(default)]
     capture_dir: Option<PathBuf>,
     actions: Vec<Action>,
 }
@@ -125,6 +127,18 @@ pub fn run(mtm: MainThreadMarker) -> Result<(), String> {
             "choose" => apply_choice(action.accepted, action.existing),
             "start" => start(),
             "activity" => enqueue(Command::Activity),
+            "journey_start" => {
+                super::SESSION.get_or_init(|| (super::random_id(), "rear_logo"));
+                start();
+            }
+            "journey" => {
+                let stage: crate::journey::Stage = serde_json::from_value(
+                    serde_json::Value::String(action.key.clone().ok_or("journey stage missing")?),
+                )
+                .map_err(|_| "unsupported journey stage")?;
+                super::record(stage);
+            }
+            "sleep_cycle" => simulated_sleep_cycle(mtm, action.value.as_ref())?,
             "disable" => disable(),
             "clock" => {
                 let mut clock = CLOCK
@@ -180,6 +194,15 @@ pub fn run(mtm: MainThreadMarker) -> Result<(), String> {
     );
     if config.interactive {
         let handler = crate::ui::handler::Handler::new(mtm);
+        // SAFETY: the guarded test uses the same application delegate as the
+        // real app. It stays alive until AppKit terminates or the loop returns.
+        unsafe {
+            let _: () = objc2::msg_send![&app, setDelegate: &*handler];
+        }
+        if config.native_quit {
+            app.terminate(None);
+            return Err("native termination unexpectedly returned".into());
+        }
         crate::ui::settings::open(&handler, mtm);
         if let Some(directory) = &config.capture_dir {
             crate::ui::settings::export_previews(&handler, directory)
@@ -190,13 +213,102 @@ pub fn run(mtm: MainThreadMarker) -> Result<(), String> {
     Ok(())
 }
 
+fn simulated_sleep_cycle(
+    mtm: MainThreadMarker,
+    faults: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    use crate::light::{LightState, Persistence, STATE};
+    use crate::output::{DeviceInfo, LightKind, LightOutput, LightValue, OutputStatus};
+    use objc2::msg_send;
+    struct Output {
+        writes: usize,
+        sleep_fails: bool,
+        wake_fails: bool,
+    }
+    impl LightOutput for Output {
+        fn device(&self) -> DeviceInfo {
+            DeviceInfo {
+                kind: LightKind::RearLogo,
+                simulated: true,
+                experimental: false,
+            }
+        }
+        fn initial_value(&self) -> LightValue {
+            LightValue {
+                on: true,
+                brightness: 255,
+            }
+        }
+        fn write(&mut self, _: u8) -> std::io::Result<OutputStatus> {
+            let fail = if self.writes == 0 {
+                self.sleep_fails
+            } else {
+                self.wake_fails
+            };
+            self.writes += 1;
+            if fail {
+                Err(std::io::Error::other("Synthetic sleep write failure"))
+            } else {
+                Ok(OutputStatus::Ready)
+            }
+        }
+        fn shutdown(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let fail = |key: &str| {
+        faults
+            .and_then(|value| value.get(key))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    };
+    let state = LightState::with_output(
+        Box::new(Output {
+            writes: 0,
+            sleep_fails: fail("sleep_fails"),
+            wake_fails: fail("wake_fails"),
+        }),
+        Persistence::SessionOnly,
+    );
+    *STATE
+        .lock()
+        .map_err(|_| "fixture controller lock poisoned")? = Some(state);
+    preferences::save_sleep_settings(preferences::SleepSettings {
+        enabled: true,
+        brightness_pct: 0,
+    });
+    super::record(crate::journey::Stage::SleepOptionEnabled);
+    let handler = crate::ui::handler::Handler::new(mtm);
+    let note = NSString::from_str("Synthetic notification; no system sleep");
+    // SAFETY: these direct calls use valid objects and the production selectors.
+    // They do not post workspace notifications or call any OS power API.
+    unsafe {
+        for _ in 0..2 {
+            let _: () = msg_send![&handler, workspaceWillSleep: &*note];
+        }
+        if fail("renew_consent") {
+            super::disable();
+            super::apply_choice(true, true);
+            super::start();
+        }
+        for _ in 0..2 {
+            let _: () = msg_send![&handler, workspaceDidWake: &*note];
+        }
+    }
+    *STATE
+        .lock()
+        .map_err(|_| "fixture controller lock poisoned")? = None;
+    Ok(())
+}
+
 fn snapshot() -> serde_json::Value {
     let state = load_state();
     serde_json::json!({"enabled":preferences::diagnostics_enabled(),
         "decided": preferences::diagnostics_consent_decided(), "has_identity":state.is_some(),
         "last_version":state.as_ref().and_then(|state|state.last_version.clone()),
         "last_day":state.as_ref().and_then(|state|state.last_day),
-        "pending_deletions":pending_erasures().len()})
+        "pending_deletions":pending_erasures().len(),
+        "pending_journey":state.as_ref().map_or(0, |state| state.journey_outbox.len())})
 }
 
 fn seed(key: &str, value: &serde_json::Value) -> Result<(), String> {

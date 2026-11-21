@@ -493,6 +493,7 @@ fn get_str(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{clamp_brightness, effect_from_str, effect_to_str};
+
     #[test]
     fn sleep_settings_default_to_opt_out_and_map_percentages_safely() {
         let default = super::SleepSettings::default();
