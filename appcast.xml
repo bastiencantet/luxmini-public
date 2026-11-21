@@ -6,6 +6,14 @@
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
+      <title>Version 0.5.3</title>
+      <sparkle:version>0.5.3</sparkle:version>
+      <sparkle:shortVersionString>0.5.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 21 Nov 2026 00:31:58 +0000</pubDate>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.5.3.dmg" sparkle:edSignature="YsXjjtVYmMJMNBozDo+E6bhgn72BKn2N+D2UuUUFmmmXlXFWzYK+/FrJBqxN2iH8uMtiAGpVXIh1w6kfwDfPCw==" length="8138066" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 0.5.2</title>
       <sparkle:version>0.5.2</sparkle:version>
       <sparkle:shortVersionString>0.5.2</sparkle:shortVersionString>
