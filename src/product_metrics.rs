@@ -682,7 +682,7 @@ mod tests {
         let old = r#"{"installation_id":"synthetic","model_id":"Mac999,1","origin":"existing","last_version":"0.5.1","last_day":20000}"#;
         let loaded: State = serde_json::from_str(old)?;
         assert!(loaded.journey_outbox.is_empty());
-        assert!(loaded.journey_seen.is_empty());
+        assert_eq!(loaded.journey_seen, Vec::<Stage>::new());
         assert!(loaded.journey_session.is_none());
         assert_eq!(loaded.last_version.as_deref(), Some("0.5.1"));
         Ok(())
