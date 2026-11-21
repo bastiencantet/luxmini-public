@@ -7,6 +7,7 @@ mod effects;
 mod helper;
 mod helper_protocol;
 mod i18n;
+mod journey;
 mod launch_at_login;
 mod light;
 mod location;
@@ -53,6 +54,13 @@ fn main() {
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     ui::application_menu::install(mtm);
+    let handler = ui::handler::Handler::new(mtm);
+    // Install before modal setup: a native Quit must also close a setup session.
+    // SAFETY: Handler implements the application delegate selectors and remains
+    // owned by this function, then by app_handle, for the application's lifetime.
+    unsafe {
+        let _: () = objc2::msg_send![&app, setDelegate: &*handler];
+    }
 
     if let Some(kind) = simulator::requested_kind() {
         simulator::run(mtm, kind);
@@ -130,17 +138,20 @@ fn main() {
 
     let model = compat::get_mac_model();
     eprintln!("detected Mac model: {model}");
-    let existing_install =
-        preferences::setup_verified_for(&model) || preferences::load_last_state().is_some();
+    let existing_install = preferences::setup_verified_for(&model)
+        || preferences::setup_pending_for(&model)
+        || preferences::load_last_state().is_some()
+        || preferences::product_metrics_state().is_some();
     let pending = compat::is_pending(&model);
     let supported = compat::is_supported(&model);
     let device = output::detect_device();
     let has_logo = device.kind == output::LightKind::RearLogo;
+    product_metrics::offer_consent(mtm, existing_install);
+    let _metrics_session = product_metrics::begin_session(device);
     if !has_logo && !pending && !supported && !compat::show_unsupported_alert(mtm, &model) {
+        product_metrics::record(journey::Stage::UnsupportedCancelled);
         return;
     }
-    product_metrics::offer_consent(mtm, existing_install);
-    product_metrics::start();
     telemetry::note_launch(&model);
 
     let needs_validation = pending
@@ -170,6 +181,11 @@ fn main() {
         }
     };
 
+    product_metrics::record(if initial_state.is_ready() {
+        journey::Stage::ControlReady
+    } else {
+        journey::Stage::ControlUnavailable
+    });
     match STATE.lock() {
         Ok(mut state) => *state = Some(initial_state),
         Err(err) => {
@@ -177,13 +193,7 @@ fn main() {
             return;
         }
     }
-    let app_handle = ui::build_app(mtm);
-
-    // Handler doubles as the NSApplication delegate so reopening LuxMini brings the icon back.
-    // SAFETY: setDelegate: takes an NSApplicationDelegate; handler outlives the run loop.
-    unsafe {
-        let _: () = objc2::msg_send![&app, setDelegate: &*app_handle.handler];
-    }
+    let app_handle = ui::build_app(mtm, handler);
     if preferences::load_hide_icon() {
         app_handle.handler.set_icon_hidden(true);
     }

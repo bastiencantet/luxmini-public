@@ -199,6 +199,8 @@ privacy notice, erasure flow and daily retention task have been verified for
 this rollout. These statistics cannot retrospectively recover users, updates
 or unique downloads from releases that did not send them.
 
+Optional expanded diagnostics require fresh consent. They add random session and sleep-cycle IDs to report setup stages, bounded control failures and sleep/wake driver results. Settings → General provides the optional switch and Copy statistics ID action. Disabling deletes linked data; renewed consent creates fresh identifiers. No brightness, schedule, serial number or raw error text is sent. See the [privacy explanation](https://luxmini.bastiencantet.com/docs#privacy).
+
 ## Support
 
 LuxMini is free and its source is open to read, build, and audit. If it saved you a piece of tape:

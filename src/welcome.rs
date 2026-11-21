@@ -19,8 +19,10 @@ use objc2_app_kit::{
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer};
 
 use crate::helper::Helper;
+use crate::journey::Stage;
 use crate::light::LightState;
 use crate::preferences;
+use crate::product_metrics::record;
 use crate::profile::DeviceProfile;
 
 const WIDTH: f64 = 560.0;
@@ -765,6 +767,15 @@ mod feedback_tests {
 /// A pending Mac can try its existing approved profile first; failed visual
 /// confirmation falls through to the bounded candidate discovery flow.
 pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightState> {
+    record(Stage::OnboardingStarted);
+    let result = run_setup(mtm, model, pending);
+    if result.is_some() {
+        record(Stage::OnboardingCompleted);
+    }
+    result
+}
+
+fn run_setup(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightState> {
     preferences::mark_setup_pending(model);
     let ui = WelcomeWindow::new(mtm, model);
     if !ui.ask(
@@ -772,6 +783,7 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightSta
         "Get Started",
         Some("Quit"),
     ) {
+        record(Stage::OnboardingCancelled);
         ui.close();
         return None;
     }
@@ -779,6 +791,7 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightSta
     'setup: loop {
         ui.set_status("Checking the device profile...");
         let Some(profile) = DeviceProfile::load() else {
+            record(Stage::ProfileUnavailable);
             if pending
                 && ui.ask(
                     "This Mac needs LED profile detection.",
@@ -804,10 +817,13 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightSta
             continue;
         };
 
+        record(Stage::ProfileReady);
         ui.set_status("Checking the privileged LED helper...");
         let mut helper = match Helper::spawn_with_profile(Some(profile)) {
             Ok(helper) => helper,
             Err(error) => {
+                record(Stage::HelperFailed);
+                record(Stage::OnboardingFailed);
                 eprintln!("setup helper check failed: {error}");
                 if ui.ask(helper_failure_message(&error), "Retry", Some("Quit")) {
                     continue;
@@ -817,10 +833,13 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightSta
             }
         };
 
+        record(Stage::HelperReady);
         ui.set_status("The helper has root access. Watch the real front LED now...");
         let response = match test_led_until_response(&mut helper, &ui) {
             Ok(response) => response,
             Err(error) => {
+                record(Stage::LedTestFailed);
+                record(Stage::OnboardingFailed);
                 eprintln!("setup LED test failed: {error}");
                 if ui.ask(
                     "The LED profile could not be read or written. Retry the test?",
@@ -833,21 +852,13 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightSta
                 return None;
             }
         };
+        record(if response == PRIMARY {
+            Stage::VisualConfirmed
+        } else {
+            Stage::VisualRejected
+        });
         if response == PRIMARY {
-            if pending {
-                preferences::save_validated_profile_model(model);
-            }
-            preferences::mark_setup_completed(model);
-            let _ = ui.ask(
-                "LuxMini is ready. Your LED is verified.",
-                "Open LuxMini",
-                None,
-            );
-            ui.close();
-            return Some(LightState::with_output(
-                crate::output::from_helper(helper),
-                crate::light::Persistence::Saved,
-            ));
+            return Some(finish_verified_setup(&ui, model, pending, helper));
         }
 
         if ui.ask(
@@ -860,7 +871,30 @@ pub fn run(mtm: MainThreadMarker, model: &str, pending: bool) -> Option<LightSta
             preferences::mark_setup_completed(model);
             return Some(state);
         }
+        record(Stage::OnboardingCancelled);
         ui.close();
         return None;
     }
+}
+
+fn finish_verified_setup(
+    ui: &WelcomeWindow,
+    model: &str,
+    pending: bool,
+    helper: Helper,
+) -> LightState {
+    if pending {
+        preferences::save_validated_profile_model(model);
+    }
+    preferences::mark_setup_completed(model);
+    let _ = ui.ask(
+        "LuxMini is ready. Your LED is verified.",
+        "Open LuxMini",
+        None,
+    );
+    ui.close();
+    LightState::with_output(
+        crate::output::from_helper(helper),
+        crate::light::Persistence::Saved,
+    )
 }

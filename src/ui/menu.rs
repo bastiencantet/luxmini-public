@@ -227,9 +227,7 @@ fn make_action(
 /// status item; dropping it would remove the icon from the menu bar.
 #[allow(clippy::too_many_lines)] // flat linear menu assembly; splitting hurts readability
 #[must_use]
-pub fn build_app(mtm: MainThreadMarker) -> App {
-    let handler = Handler::new(mtm);
-
+pub fn build_app(mtm: MainThreadMarker, handler: Retained<Handler>) -> App {
     let status_bar = NSStatusBar::systemStatusBar();
     let status_item = status_bar.statusItemWithLength(NSVariableStatusItemLength);
 

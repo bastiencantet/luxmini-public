@@ -819,15 +819,12 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     let diagnostics = toggle_row(
         mtm,
         &p_gen,
-        i18n::s(
-            "Share optional usage statistics",
-            "Partager des statistiques facultatives",
-        ),
+        "Share optional detailed statistics",
         Some(i18n::s(
             "Uses a random installation ID with consent. Turn off to delete linked data.",
             "Identifiant aléatoire avec votre accord. Désactivez pour supprimer les données liées.",
         )),
-        361.0,
+        435.0,
     );
     #[cfg(feature = "field-test")]
     diagnostics.setEnabled(false);
@@ -846,7 +843,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         handler,
         i18n::s("API docs\u{2026}", "Doc de l'API\u{2026}"),
         sel!(openApiDocs:),
-        prect(434.0, 30.0, INSET, 150.0),
+        prect(508.0, 30.0, INSET, 150.0),
     ));
 
     p_gen.addSubview(&push_button(
@@ -854,7 +851,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         handler,
         i18n::s("Privacy details…", "Confidentialité…"),
         sel!(openPrivacyPolicy:),
-        prect(434.0, 30.0, INSET + 164.0, 180.0),
+        prect(508.0, 30.0, INSET + 164.0, 180.0),
     ));
 
     p_gen.addSubview(&push_button(
@@ -862,7 +859,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         handler,
         i18n::s("Copy statistics ID", "Copier l'identifiant statistique"),
         sel!(copyStatisticsID:),
-        prect(434.0, 30.0, INSET + 358.0, 300.0),
+        prect(508.0, 30.0, INSET + 358.0, 300.0),
     ));
 
     // ── Pane 4: Advanced ────────────────────────────────────────────────
@@ -1161,6 +1158,9 @@ pub fn save_sleep(handler: &Handler) {
     };
     preferences::save_sleep_settings(sleep);
     refresh_sleep_controls(r, sleep);
+    if sleep.enabled {
+        crate::product_metrics::record(crate::journey::Stage::SleepOptionEnabled);
+    }
 }
 
 /// Keep the window's primary controls and device preview aligned with the

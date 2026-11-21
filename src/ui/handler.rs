@@ -37,6 +37,7 @@ pub struct UiRefs {
 }
 
 pub struct HandlerIvars {
+    pub sleep_cycle: RefCell<Option<crate::product_metrics::SleepCycle>>,
     pub ui: RefCell<Option<UiRefs>>,
     pub settings: RefCell<Option<SettingsRefs>>,
     /// The in-flight `CLLocationManager`, kept alive for the async request.
@@ -170,12 +171,18 @@ define_class!(
         #[unsafe(method(workspaceWillSleep:))]
         fn workspace_will_sleep(&self, _note: &AnyObject) {
             let settings = preferences::load_sleep_settings();
-            with_state(|s| s.enter_sleep(settings));
+            if let Some(applied) = with_state(|s| s.enter_sleep(settings)).flatten() {
+                *self.ivars().sleep_cycle.borrow_mut() = crate::product_metrics::begin_sleep_cycle(applied);
+            }
         }
 
         #[unsafe(method(workspaceDidWake:))]
         fn workspace_did_wake(&self, _note: &AnyObject) {
-            with_state(|s| s.leave_sleep(schedule::current_target()));
+            if let Some(restored) = with_state(|s| s.leave_sleep(schedule::current_target())).flatten() {
+                if let Some(cycle) = self.ivars().sleep_cycle.borrow_mut().take() {
+                    crate::product_metrics::finish_sleep_cycle(&cycle, restored);
+                }
+            }
             schedule::kick();
             self.refresh_ui();
         }
@@ -492,6 +499,7 @@ define_class!(
             crate::api::stop();
             schedule::stop();
             crate::light::shutdown();
+            crate::product_metrics::finish_session();
         }
 
         #[unsafe(method(quit:))]
@@ -510,6 +518,7 @@ impl Handler {
     pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = mtm.alloc::<Self>();
         let this = this.set_ivars(HandlerIvars {
+            sleep_cycle: RefCell::new(None),
             ui: RefCell::new(None),
             settings: RefCell::new(None),
             location_manager: RefCell::new(None),
@@ -650,7 +659,13 @@ impl Handler {
     }
 
     fn finish_led_action(&self) {
+        let ready = with_state(|state| state.is_ready()).unwrap_or(false);
         let failed = self.show_control_error_if_any();
+        crate::product_metrics::record(if !failed && ready {
+            crate::journey::Stage::ManualControlSuccess
+        } else {
+            crate::journey::Stage::ManualControlFailed
+        });
         if !failed {
             self.note_meaningful_action();
         }

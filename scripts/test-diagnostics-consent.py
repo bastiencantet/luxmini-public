@@ -20,6 +20,7 @@ parser.add_argument('--binary', required=True, type=pathlib.Path)
 parser.add_argument('--field-test', action='store_true', help='Verify a debug field-test binary excludes all statistics')
 args = parser.parse_args()
 records = []
+passed = 0
 faults = {}
 lock = threading.Lock()
 arrivals = {route: threading.Event() for route in ['profile-token', 'telemetry']}
@@ -89,8 +90,10 @@ def reset():
     for event in arrivals.values(): event.clear()
 def accepted(existing=False): return [action('offer', accepted=True, existing=existing), action('start'), action('drain')]
 def check(name, fn):
+    global passed
     reset()
     fn()
+    passed += 1
     print('PASS', name, flush=True)
 
 if args.field_test:
@@ -184,7 +187,7 @@ def corrupt():
 check('Corrupt preferences fail closed',corrupt)
 
 def unrecognized_consent():
-    for consent in [-1, 2, 999]:
+    for consent in [-1, 1, 3, 999]:
         data,_=run([action('seed',key='diagnostics.enabled',value=True),action('seed',key='diagnostics.consent_version',value=consent),action('start'),action('drain'),action('snapshot')])
         assert not records and not data['snapshots'][0]['enabled']
 check('Unknown and future consent versions fail closed',unrecognized_consent)
@@ -217,4 +220,82 @@ def bundle_guard():
     assert 'disposable test bundle' in message and not records
 check('Harness rejects production preference domains',bundle_guard)
 
-print('20 process scenarios passed; production endpoints and hardware were never started.')
+
+
+
+if not args.field_test:
+    def native_exit():
+        run([action('choose', accepted=True), action('journey_start'), action('drain')],
+            interactive=True, native_quit=True)
+        events = [body for route, body in records if route == 'telemetry' and body.get('event') == 'app_journey']
+        assert [e['outcome'] for e in events] == ['app_opened', 'app_exited'], events
+        assert len({e['session_id'] for e in events}) == 1
+    check('Native AppKit termination reports and drains the graceful exit', native_exit)
+
+    def journey_sessions():
+        _, bundle = run(accepted() + [action('journey_start'), action('journey', key='control_ready'),
+            action('journey', key='manual_control_success'), action('journey', key='manual_control_success'), action('drain')])
+        events = [body for route, body in records if route == 'telemetry' and body.get('event') == 'app_journey']
+        assert [e['outcome'] for e in events] == ['app_opened', 'control_ready', 'manual_control_success']
+        assert len({e['session_id'] for e in events}) == 1
+        assert all(e['device_kind'] == 'rear_logo' and e['consent_version'] == 2 for e in events)
+        first_session = events[0]['session_id']
+        run([action('journey_start'), action('drain')], bundle)
+        opened = [body for route, body in records if route == 'telemetry' and body.get('outcome') == 'app_opened']
+        assert len(opened) == 2 and opened[-1]['session_id'] != first_session
+        assert opened[0]['installation_id'] == opened[-1]['installation_id']
+    check('Onboarding stages are deduplicated per process and reopenings keep the installation', journey_sessions)
+
+    def refused_journey():
+        run([action('offer', accepted=False), action('journey_start'), action('journey', key='control_ready'), action('drain')])
+        assert not records
+    check('Refusal sends no opening or onboarding stages', refused_journey)
+
+
+if not args.field_test:
+    def inflight_journey():
+        faults['telemetry'] = 'delay'
+        data, _ = run([action('offer', accepted=True), action('start'),
+            action('wait_request', key='telemetry'), action('journey_start'),
+            action('journey', key='onboarding_started'), action('drain'), action('snapshot')])
+        stages = [body['outcome'] for route, body in records if route == 'telemetry' and body.get('event') == 'app_journey']
+        assert stages == ['app_opened', 'onboarding_started']
+        assert data['snapshots'][0]['pending_journey'] == 0
+    check('Stages appended during in-flight activity are preserved', inflight_journey)
+
+
+
+
+if not args.field_test:
+    def sleep_cycles():
+        data, _ = run(accepted() + [action('journey_start'),
+            action('sleep_cycle', value={'sleep_fails': True}),
+            action('sleep_cycle', value={'wake_fails': True}), action('drain'), action('snapshot')])
+        events = [b for route, b in records if b.get('event') == 'app_journey' and b.get('cycle_id')]
+        assert len(events) == 6, events
+        cycles = {e['cycle_id'] for e in events}
+        assert len(cycles) == 2 and len({e['session_id'] for e in events}) == 1
+        assert all(len([e for e in events if e['cycle_id'] == cycle]) == 3 for cycle in cycles)
+        assert sum(e['outcome'] == 'sleep_failed' for e in events) == 1
+        assert sum(e['outcome'] == 'wake_failed' for e in events) == 1
+        assert data['snapshots'][0]['pending_journey'] == 0
+        assert all(not {'brightness', 'schedule', 'error', 'serial_number'} & e.keys() for e in events)
+    check('Production sleep callbacks report separate cycles, exact errors and no duplicate notifications', sleep_cycles)
+
+    def refused_sleep():
+        run([action('offer', accepted=False), action('journey_start'), action('sleep_cycle'), action('drain')])
+        assert not records
+    check('Sleep diagnostics send nothing after refusal', refused_sleep)
+
+if not args.field_test:
+    def renewed_sleep():
+        run(accepted() + [action('journey_start'), action('sleep_cycle', value={'renew_consent': True}), action('drain')])
+        forgotten = erasures()[0]['installation_id']
+        reports = [b for route, b in records if b.get('event') == 'app_journey']
+        old = [b for b in reports if b['installation_id'] == forgotten]
+        new = [b for b in reports if b['installation_id'] != forgotten]
+        assert new and all(not b.get('cycle_id') for b in new)
+        assert not {b['session_id'] for b in old} & {b['session_id'] for b in new}
+    check('Renewed consent never reuses an earlier sleep cycle or wire session', renewed_sleep)
+
+print(f"{passed} process scenarios passed; production endpoints and hardware were never started.")
