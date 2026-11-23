@@ -8,3 +8,6 @@ pub mod settings;
 mod tray;
 
 pub use menu::build_app;
+
+#[cfg(debug_assertions)]
+pub(crate) mod idle_test;

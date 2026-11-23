@@ -13,6 +13,7 @@ mod light;
 mod location;
 mod onboarding;
 mod output;
+mod power;
 mod preferences;
 mod product_metrics;
 mod profile;
@@ -22,6 +23,7 @@ mod setapp;
 mod simulator;
 #[cfg(all(feature = "direct", not(feature = "field-test")))]
 mod sparkle;
+mod startup;
 mod sun;
 mod telemetry;
 mod ui;
@@ -76,6 +78,28 @@ fn main() {
     #[cfg(debug_assertions)]
     if std::env::var_os("LUXMINI_PREVIEW_WELCOME").is_some() {
         welcome::preview(mtm);
+        return;
+    }
+
+    if std::env::var_os("LUXMINI_CHECK_IDLE_SETTINGS").is_some() {
+        #[cfg(debug_assertions)]
+        if let Err(error) = ui::idle_test::run(mtm) {
+            eprintln!("idle settings check failed: {error}");
+            std::process::exit(2);
+        }
+        #[cfg(not(debug_assertions))]
+        eprintln!("idle settings checks require a debug build");
+        return;
+    }
+
+    if std::env::var_os("LUXMINI_CHECK_SETTINGS_REOPEN").is_some() {
+        #[cfg(debug_assertions)]
+        if let Err(error) = ui::settings::check_reopen(mtm) {
+            eprintln!("settings reopen check failed: {error}");
+            std::process::exit(2);
+        }
+        #[cfg(not(debug_assertions))]
+        eprintln!("settings reopen checks require a debug build");
         return;
     }
 
@@ -136,6 +160,12 @@ fn main() {
         }
     }
 
+    #[cfg(debug_assertions)]
+    if std::env::var_os("LUXMINI_PREVIEW_STARTUP").is_some() {
+        startup::preview(mtm);
+        return;
+    }
+
     let model = compat::get_mac_model();
     eprintln!("detected Mac model: {model}");
     let existing_install = preferences::setup_verified_for(&model)
@@ -180,6 +210,10 @@ fn main() {
             state
         }
     };
+
+    if initial_state.is_ready() {
+        startup::offer_if_needed(mtm, existing_install);
+    }
 
     product_metrics::record(if initial_state.is_ready() {
         journey::Stage::ControlReady

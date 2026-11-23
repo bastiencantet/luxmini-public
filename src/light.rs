@@ -42,10 +42,12 @@ pub struct LightState {
     effect_stop: Option<Arc<AtomicBool>>,
     current_effect: Option<Effect>,
     sleep: Option<SleepState>,
+    power: crate::power::State,
 }
 
 struct SleepState {
     effect: Option<Effect>,
+    brightness: u8,
 }
 
 const fn resolve_auto(target: Option<u8>, manual_on: bool, manual_brightness: u8) -> (u8, bool) {
@@ -84,6 +86,7 @@ impl LightState {
             effect_stop: None,
             current_effect: None,
             sleep: None,
+            power: crate::power::State::default(),
         }
     }
 
@@ -101,6 +104,7 @@ impl LightState {
             effect_stop: None,
             current_effect: None,
             sleep: None,
+            power: crate::power::State::default(),
         }
     }
 
@@ -405,6 +409,55 @@ impl LightState {
         self.persist();
     }
 
+    /// Apply the selected idle policy using one shared state for both device kinds.
+    pub fn handle_power_event(
+        &mut self,
+        event: crate::power::Event,
+        settings: preferences::SleepSettings,
+        target: Option<u8>,
+    ) -> Option<crate::power::Change> {
+        let waking = self.power.system_asleep && event == crate::power::Event::SystemWake;
+        self.power.observe(event);
+        self.reconcile_idle(settings, target, waking)
+    }
+
+    /// Settings edits affect an existing override, without previewing it while awake.
+    pub fn update_sleep_settings(
+        &mut self,
+        settings: preferences::SleepSettings,
+        target: Option<u8>,
+    ) -> Option<crate::power::Change> {
+        self.reconcile_idle(settings, target, false)
+    }
+
+    fn reconcile_idle(
+        &mut self,
+        settings: preferences::SleepSettings,
+        target: Option<u8>,
+        force_write: bool,
+    ) -> Option<crate::power::Change> {
+        use crate::power::Change;
+        if !settings.enabled || !self.power.matches(settings.trigger) {
+            return self.leave_sleep(target).map(Change::Restored);
+        }
+        if let Some(sleep) = &self.sleep {
+            let value = settings.brightness();
+            if !force_write && sleep.brightness == value {
+                return None;
+            }
+            let applied = self.write(value);
+            if applied {
+                if let Some(sleep) = &mut self.sleep {
+                    sleep.brightness = value;
+                }
+                self.brightness = value;
+                self.is_on = value > 0;
+            }
+            return Some(Change::Applied(applied));
+        }
+        self.enter_sleep(settings).map(Change::Applied)
+    }
+
     /// Apply a transient sleep level while serializing against all other writers.
     /// Even a rejected write keeps the barrier until wake, without changing intent.
     pub fn enter_sleep(&mut self, settings: preferences::SleepSettings) -> Option<bool> {
@@ -413,6 +466,7 @@ impl LightState {
         }
         self.sleep = Some(SleepState {
             effect: self.current_effect,
+            brightness: settings.brightness(),
         });
         self.stop_effect();
         let value = settings.brightness();
@@ -759,6 +813,10 @@ mod tests {
         assert_eq!(resolve_auto(None, false, 200), (0, false));
     }
 
+    mod power_events {
+        include!("power_tests.rs");
+    }
+
     #[test]
     fn disabled_sleep_does_not_write_or_interrupt_an_effect() -> io::Result<()> {
         let output = probe(LightKind::FrontLed);
@@ -792,6 +850,7 @@ mod tests {
             let _ = state.enter_sleep(preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 5,
+                trigger: crate::power::Trigger::SystemSleep,
             });
             assert!(stop.load(Ordering::Acquire));
             assert_eq!(state.brightness, 13);
@@ -812,6 +871,7 @@ mod tests {
             let _ = state.enter_sleep(preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 0,
+                trigger: crate::power::Trigger::SystemSleep,
             });
             assert_eq!(state.brightness, 13);
             assert_eq!(state.capture_preset().brightness, 153);
@@ -840,6 +900,7 @@ mod tests {
                 let settings = preferences::SleepSettings {
                     enabled: true,
                     brightness_pct: percent,
+                    trigger: crate::power::Trigger::SystemSleep,
                 };
                 let _ = state.enter_sleep(settings);
                 assert_eq!(state.brightness, settings.brightness());
@@ -877,6 +938,7 @@ mod tests {
             let _ = state.enter_sleep(preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 0,
+                trigger: crate::power::Trigger::SystemSleep,
             });
             let _ = state.leave_sleep(None);
             state.apply_auto(None); // the wake scheduler kick must preserve the resumed effect
@@ -897,6 +959,7 @@ mod tests {
         let _ = state.enter_sleep(preferences::SleepSettings {
             enabled: true,
             brightness_pct: 0,
+            trigger: crate::power::Trigger::SystemSleep,
         });
         assert_eq!(state.brightness, 90);
         assert!(state.sleep.is_some());
@@ -908,6 +971,7 @@ mod tests {
         let _ = state.enter_sleep(preferences::SleepSettings {
             enabled: true,
             brightness_pct: 0,
+            trigger: crate::power::Trigger::SystemSleep,
         });
         reject.store(true, Ordering::Relaxed);
         let _ = state.leave_sleep(None);

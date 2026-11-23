@@ -12,9 +12,10 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{msg_send, sel, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAlert, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSColor, NSFont, NSImage, NSImageView,
-    NSSlider, NSSwitch, NSTextField, NSTitlePosition, NSToolbar, NSToolbarDisplayMode,
-    NSToolbarItem, NSView, NSWindow, NSWindowStyleMask,
+    NSAlert, NSBackingStoreType, NSBox, NSBoxType, NSButton, NSButtonType, NSColor, NSFont,
+    NSImage, NSImageView, NSSlider, NSSwitch, NSTextField, NSTitlePosition, NSToolbar,
+    NSToolbarDisplayMode, NSToolbarItem, NSView, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString};
 
@@ -40,6 +41,8 @@ pub struct SettingsRefs {
     pub sleep_switch: Retained<NSSwitch>,
     pub sleep_slider: Retained<NSSlider>,
     pub sleep_percent: Retained<NSTextField>,
+    pub sleep_system_radio: Retained<NSButton>,
+    pub sleep_display_radio: Retained<NSButton>,
     pub led_preview_on: Option<Retained<NSImageView>>,
     pub led_preview_off: Option<Retained<NSImageView>>,
     #[cfg(debug_assertions)]
@@ -83,6 +86,26 @@ fn label(mtm: MainThreadMarker, text: &str, frame: NSRect, bold: bool) -> Retain
         f.setFont(Some(&NSFont::boldSystemFontOfSize(15.0)));
     }
     f
+}
+
+fn idle_radio(
+    mtm: MainThreadMarker,
+    handler: &Handler,
+    title: &str,
+    tag: isize,
+    frame: NSRect,
+) -> Retained<NSButton> {
+    // SAFETY: a native radio button targets Handler's one-argument selector.
+    unsafe {
+        let button: Retained<NSButton> = msg_send![NSButton::alloc(mtm), initWithFrame: frame];
+        button.setButtonType(NSButtonType::Radio);
+        button.setTitle(&NSString::from_str(title));
+        button.setFont(Some(&NSFont::systemFontOfSize(13.0)));
+        button.setTag(tag);
+        button.setTarget(Some(handler));
+        button.setAction(Some(sel!(selectSleepTrigger:)));
+        button
+    }
 }
 
 fn field(mtm: MainThreadMarker, text: &str, frame: NSRect) -> Retained<NSTextField> {
@@ -392,11 +415,7 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     if handler.ivars().settings.borrow().is_some() {
         populate(handler);
         if let Some(r) = handler.ivars().settings.borrow().as_ref() {
-            // SAFETY: makeKeyAndOrderFront: shows the existing window; nil sender is fine.
-            unsafe {
-                let _: () =
-                    msg_send![&r.window, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
-            }
+            present(&r.window, mtm);
         }
         return;
     }
@@ -716,8 +735,8 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
     }
 
     p_led.addSubview(&divider(mtm, prect(496.0, 1.0, INSET, CONTENT_WIDTH)));
-    p_led.addSubview(&section_label(mtm, "MAC SLEEP", 509.0));
-    let beta = hint(mtm, "BETA", prect(508.0, 18.0, INSET + 94.0, 46.0));
+    p_led.addSubview(&section_label(mtm, "IDLE BRIGHTNESS", 509.0));
+    let beta = hint(mtm, "BETA", prect(508.0, 18.0, INSET + 148.0, 46.0));
     beta.setTextColor(Some(&NSColor::systemOrangeColor()));
     beta.setFont(Some(&NSFont::boldSystemFontOfSize(10.0)));
     p_led.addSubview(&beta);
@@ -726,20 +745,34 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         handler,
         "Report a bug",
         sel!(reportSleepBug:),
-        prect(502.0, 28.0, PW - INSET - 136.0, 136.0),
+        prect(502.0, 28.0, PW - INSET - 206.0, 136.0),
     );
     // SAFETY: this native button keeps its action and focus while appearing as a link.
     unsafe {
         let _: () = msg_send![&report, setBordered: false];
     }
     p_led.addSubview(&report);
-    let sleep_switch = toggle_row(
+    // SAFETY: the section switch is a native control with its own accessibility label.
+    let sleep_switch: Retained<NSSwitch> = unsafe {
+        msg_send![NSSwitch::alloc(mtm), initWithFrame: prect(502.0, 28.0, PW - INSET - 50.0, 50.0)]
+    };
+    p_led.addSubview(&sleep_switch);
+    let sleep_system_radio = idle_radio(
         mtm,
-        &p_led,
-        "Use a different brightness during sleep",
-        None,
-        533.0,
+        handler,
+        "When the Mac sleeps",
+        0,
+        prect(533.0, 25.0, INSET, 250.0),
     );
+    let sleep_display_radio = idle_radio(
+        mtm,
+        handler,
+        "When the display turns off",
+        1,
+        prect(533.0, 25.0, INSET + 274.0, 330.0),
+    );
+    p_led.addSubview(&sleep_system_radio);
+    p_led.addSubview(&sleep_display_radio);
     // SAFETY: a native slider sends the same preference-only action as the
     // switch. Editing this value never previews it on the physical output.
     let sleep_slider: Retained<NSSlider> =
@@ -754,14 +787,14 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         let _: () = msg_send![&sleep_slider, setTarget: handler];
         let _: () = msg_send![&sleep_slider, setAction: sel!(saveSleepSettings:)];
         let _: () = msg_send![&sleep_slider, setContinuous: true];
-        let _: () = msg_send![&sleep_slider, setAccessibilityLabel: &*NSString::from_str("Sleep brightness")];
-        let _: () = msg_send![&sleep_switch, setAccessibilityLabel: &*NSString::from_str("Use a different brightness during sleep")];
+        let _: () = msg_send![&sleep_slider, setAccessibilityLabel: &*NSString::from_str("Idle brightness")];
+        let _: () = msg_send![&sleep_switch, setAccessibilityLabel: &*NSString::from_str("Use a different brightness while idle")];
     }
     p_led.addSubview(&sleep_slider);
     p_led.addSubview(&sleep_percent);
     p_led.addSubview(&hint(
         mtm,
-        "0% = off. Normal settings resume on wake. Screen sleep alone has no effect.",
+        "0% = off. Your settings resume when the selected event ends.",
         prect(595.0, 18.0, INSET, CONTENT_WIDTH),
     ));
 
@@ -1009,6 +1042,8 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
         sleep_switch,
         sleep_slider,
         sleep_percent,
+        sleep_system_radio,
+        sleep_display_radio,
         led_preview_on,
         led_preview_off,
         #[cfg(debug_assertions)]
@@ -1020,13 +1055,151 @@ pub fn open(handler: &Handler, mtm: MainThreadMarker) {
 
     select_section(handler, 0);
 
-    // SAFETY: bring the freshly built window to the front; nil sender is fine.
-    unsafe {
-        let _: () = msg_send![&window, makeKeyAndOrderFront: std::ptr::null_mut::<AnyObject>()];
-    }
+    present(&window, mtm);
+}
+
+/// Showing an inactive app's window does not activate the app. Use the same
+/// presentation path for the first open and every reuse of the singleton.
+fn present(window: &NSWindow, mtm: MainThreadMarker) {
+    window.setCollectionBehavior(
+        NSWindowCollectionBehavior::MoveToActiveSpace
+            | NSWindowCollectionBehavior::FullScreenAuxiliary,
+    );
     let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    app.unhide(None);
+    // Keep compatibility with macOS 11; the newer activate API requires macOS 14.
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
+    window.makeKeyAndOrderFront(None);
+}
+
+#[cfg(debug_assertions)]
+fn wait_for_settings(
+    app: &objc2_app_kit::NSApplication,
+    mut predicate: impl FnMut() -> bool,
+) -> bool {
+    use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
+    use std::time::{Duration, Instant};
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !predicate() && Instant::now() < deadline {
+        let until = NSDate::dateWithTimeIntervalSinceNow(0.025);
+        // SAFETY: this immutable run-loop mode is provided by Foundation.
+        let mode = unsafe { NSDefaultRunLoopMode };
+        if let Some(event) = app.nextEventMatchingMask_untilDate_inMode_dequeue(
+            objc2_app_kit::NSEventMask::Any,
+            Some(&until),
+            mode,
+            true,
+        ) {
+            app.sendEvent(&event);
+        }
+        app.updateWindows();
+    }
+    predicate()
+}
+
+/// Exercise the real singleton without starting hardware, networking or login registration.
+#[cfg(debug_assertions)]
+pub fn check_reopen(mtm: MainThreadMarker) -> std::io::Result<()> {
+    use objc2_foundation::NSBundle;
+
+    let bundle = NSBundle::mainBundle()
+        .bundleIdentifier()
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    if !bundle.starts_with("com.bastiencantet.luxmini.settings-test.") {
+        return Err(std::io::Error::other(
+            "disposable settings-test bundle required",
+        ));
+    }
+    let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+    app.finishLaunching();
+    let handler = Handler::new(mtm);
+    open(&handler, mtm);
+    let window = handler
+        .ivars()
+        .settings
+        .borrow()
+        .as_ref()
+        .map(|refs| refs.window.clone())
+        .ok_or_else(|| std::io::Error::other("settings window missing"))?;
+    let first = wait_for_settings(&app, || {
+        app.isActive() && window.isVisible() && window.isKeyWindow()
+    });
+    println!(
+        "first_open active={} visible={} key={}",
+        app.isActive(),
+        window.isVisible(),
+        window.isKeyWindow()
+    );
+    if !first {
+        window.close();
+        return Err(std::io::Error::other(
+            "first settings open did not receive focus",
+        ));
+    }
+    let behavior = window.collectionBehavior();
+    if !behavior.contains(
+        NSWindowCollectionBehavior::MoveToActiveSpace
+            | NSWindowCollectionBehavior::FullScreenAuxiliary,
+    ) {
+        window.close();
+        return Err(std::io::Error::other(
+            "settings window lacks its active-space behavior",
+        ));
+    }
+    select_section(&handler, 2);
+    let selected = handler
+        .ivars()
+        .settings
+        .borrow()
+        .as_ref()
+        .and_then(|refs| refs.toolbar.selectedItemIdentifier());
+    let number = window.windowNumber();
+    for cycle in 1..=3 {
+        window.close();
+        app.hide(None);
+        if !wait_for_settings(&app, || app.isHidden() && !app.isActive()) {
+            return Err(std::io::Error::other(
+                "could not deactivate the settings test app",
+            ));
+        }
+        // Restore visibility without activation, matching a menu-bar app
+        // whose settings were closed before another application took focus.
+        app.unhideWithoutActivation();
+        if !wait_for_settings(&app, || !app.isHidden() && !app.isActive()) {
+            return Err(std::io::Error::other(
+                "could not prepare an inactive visible test app",
+            ));
+        }
+        open(&handler, mtm);
+        let focused = wait_for_settings(&app, || {
+            app.isActive() && window.isVisible() && window.isKeyWindow()
+        });
+        println!(
+            "reopen_{cycle} active={} visible={} key={} same_window={}",
+            app.isActive(),
+            window.isVisible(),
+            window.isKeyWindow(),
+            window.windowNumber() == number
+        );
+        let selection = handler
+            .ivars()
+            .settings
+            .borrow()
+            .as_ref()
+            .and_then(|refs| refs.toolbar.selectedItemIdentifier());
+        if !focused || window.windowNumber() != number || selection != selected {
+            window.close();
+            return Err(std::io::Error::other(
+                "reopened settings did not regain application focus",
+            ));
+        }
+    }
+    window.close();
+    println!("PASS: settings regain focus after three close/deactivate/reopen cycles");
+    Ok(())
 }
 
 /// Show the selected settings pane and let `AppKit` highlight its toolbar item.
@@ -1141,8 +1314,27 @@ fn populate(handler: &Handler) {
 
 fn refresh_sleep_controls(r: &SettingsRefs, sleep: preferences::SleepSettings) {
     r.sleep_slider.setEnabled(sleep.enabled);
+    r.sleep_system_radio.setEnabled(sleep.enabled);
+    r.sleep_display_radio.setEnabled(sleep.enabled);
+    r.sleep_system_radio.setState(isize::from(
+        sleep.trigger == crate::power::Trigger::SystemSleep,
+    ));
+    r.sleep_display_radio.setState(isize::from(
+        sleep.trigger == crate::power::Trigger::DisplaySleep,
+    ));
     r.sleep_percent
         .setStringValue(&NSString::from_str(&format!("{}%", sleep.brightness_pct)));
+}
+
+/// Radio buttons are mutually exclusive, and the choice is saved immediately.
+pub fn select_sleep_trigger(handler: &Handler, tag: isize) {
+    {
+        let refs = handler.ivars().settings.borrow();
+        let Some(r) = refs.as_ref() else { return };
+        r.sleep_system_radio.setState(isize::from(tag != 1));
+        r.sleep_display_radio.setState(isize::from(tag == 1));
+    }
+    save_sleep(handler);
 }
 
 /// Persist the sleep override independently of the automation Apply button.
@@ -1155,12 +1347,19 @@ pub fn save_sleep(handler: &Handler) {
     let sleep = preferences::SleepSettings {
         enabled: is_on(&r.sleep_switch),
         brightness_pct,
+        trigger: if r.sleep_display_radio.state() == 1 {
+            crate::power::Trigger::DisplaySleep
+        } else {
+            crate::power::Trigger::SystemSleep
+        },
     };
     preferences::save_sleep_settings(sleep);
     refresh_sleep_controls(r, sleep);
-    if sleep.enabled {
+    if sleep.enabled && sleep.trigger == crate::power::Trigger::SystemSleep {
         crate::product_metrics::record(crate::journey::Stage::SleepOptionEnabled);
     }
+    drop(refs);
+    handler.idle_settings_changed(sleep);
 }
 
 /// Keep the window's primary controls and device preview aligned with the

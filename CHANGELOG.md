@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-11-24
+
+### Added
+
+- Choose system sleep or display sleep as the idle-brightness trigger with native
+  radio buttons. Existing installations retain system sleep; the beta override
+  stays off by default.
+- Offer launch at login after setup, selected for new installations and optional
+  for existing installations. Remember the decision and respect later changes.
+
+### Fixed
+
+- Activate the app when reopening Settings so the existing window receives
+  keyboard focus and opens in the active workspace.
+- Keep the idle override active across overlapping display and system sleep,
+  then restore the current automation or previous manual brightness and effect.
+
+### Tests
+
+- Cover both light outputs, wake-event ordering, repeated notifications, rejected
+  writes, and preference changes. Exercise the real AppKit controls and observers
+  with isolated preferences and an in-memory light driver.
+
 ## [0.5.1] - 2026-11-18
 
 ### Fixed

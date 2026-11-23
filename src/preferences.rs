@@ -24,11 +24,12 @@ pub struct Preset {
     pub effect: Option<Effect>,
 }
 
-/// Independent, opt-in system sleep override. Display sleep is unrelated.
+/// Independent, opt-in idle override with an explicit system or display trigger.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SleepSettings {
     pub enabled: bool,
     pub brightness_pct: u8,
+    pub trigger: crate::power::Trigger,
 }
 
 impl SleepSettings {
@@ -44,11 +45,13 @@ pub fn load_sleep_settings() -> SleepSettings {
     SleepSettings {
         enabled: get_bool("sleep.enabled"),
         brightness_pct: clamp_pct(get_int("sleep.brightness_pct")),
+        trigger: crate::power::Trigger::from_stored(get_int("sleep.trigger")),
     }
 }
 
 pub fn save_sleep_settings(settings: SleepSettings) {
     set_bool("sleep.enabled", settings.enabled);
+    set_int("sleep.trigger", settings.trigger.stored());
     set_int(
         "sleep.brightness_pct",
         i64::from(settings.brightness_pct.min(100)),
@@ -166,6 +169,15 @@ pub fn load_hide_icon() -> bool {
 
 pub fn save_hide_icon(hidden: bool) {
     set_bool("ui.hide_icon", hidden);
+}
+
+/// A local startup choice is independent of optional diagnostic consent.
+pub fn login_offer_decided() -> bool {
+    get_bool("startup.login_offer_decided")
+}
+
+pub fn mark_login_offer_decided() {
+    set_bool("startup.login_offer_decided", true);
 }
 
 /// A candidate profile is trusted locally only for the exact model that the
@@ -503,7 +515,8 @@ mod tests {
             assert_eq!(
                 super::SleepSettings {
                     enabled: true,
-                    brightness_pct: percent
+                    brightness_pct: percent,
+                    trigger: crate::power::Trigger::SystemSleep,
                 }
                 .brightness(),
                 expected

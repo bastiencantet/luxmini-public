@@ -393,11 +393,27 @@ pub fn build_app(mtm: MainThreadMarker, handler: Retained<Handler>) -> App {
     handler.sync_launch_at_login_checkmark();
     handler.sync_autodim_menu();
 
-    // Handler is the menu delegate and observes system sleep/wake only.
+    // Handler is the menu delegate and observes system and display sleep/wake.
     // SAFETY: setDelegate: takes an NSMenuDelegate (Handler implements menuWillOpen:, outlives the
     // menu); addObserver:selector:name:object: registers it for the wake notification by name.
     unsafe {
         let _: () = msg_send![&menu, setDelegate: &*handler];
+    }
+
+    observe_power(&handler);
+    status_item.setMenu(Some(&menu));
+
+    App {
+        _status_item: status_item,
+        handler,
+    }
+}
+
+/// Register the shared power-event policy independently of menu construction.
+pub(crate) fn observe_power(handler: &Handler) {
+    // SAFETY: NSWorkspace owns its notification center. Handler implements all
+    // four selectors and is retained by the app for the observer lifetime.
+    unsafe {
         if let Some(ws_cls) = objc2::runtime::AnyClass::get(c"NSWorkspace") {
             let ws: *mut AnyObject = msg_send![ws_cls, sharedWorkspace];
             if !ws.is_null() {
@@ -409,11 +425,19 @@ pub fn build_app(mtm: MainThreadMarker, handler: Retained<Handler>) -> App {
                             sel!(workspaceWillSleep:),
                         ),
                         ("NSWorkspaceDidWakeNotification", sel!(workspaceDidWake:)),
+                        (
+                            "NSWorkspaceScreensDidSleepNotification",
+                            sel!(workspaceScreensDidSleep:),
+                        ),
+                        (
+                            "NSWorkspaceScreensDidWakeNotification",
+                            sel!(workspaceScreensDidWake:),
+                        ),
                     ] {
                         let name = NSString::from_str(name);
                         let _: () = msg_send![
                             nc,
-                            addObserver: &*handler,
+                            addObserver: handler,
                             selector: action,
                             name: &*name,
                             object: std::ptr::null::<AnyObject>(),
@@ -422,12 +446,5 @@ pub fn build_app(mtm: MainThreadMarker, handler: Retained<Handler>) -> App {
                 }
             }
         }
-    }
-
-    status_item.setMenu(Some(&menu));
-
-    App {
-        _status_item: status_item,
-        handler,
     }
 }

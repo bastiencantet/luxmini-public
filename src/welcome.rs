@@ -887,11 +887,13 @@ fn finish_verified_setup(
         preferences::save_validated_profile_model(model);
     }
     preferences::mark_setup_completed(model);
-    let _ = ui.ask(
-        "LuxMini is ready. Your LED is verified.",
-        "Open LuxMini",
-        None,
-    );
+    if !crate::startup::needs_offer() {
+        let _ = ui.ask(
+            "LuxMini is ready. Your LED is verified.",
+            "Open LuxMini",
+            None,
+        );
+    }
     ui.close();
     LightState::with_output(
         crate::output::from_helper(helper),

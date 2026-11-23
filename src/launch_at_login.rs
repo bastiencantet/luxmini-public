@@ -32,10 +32,13 @@ pub fn is_enabled() -> bool {
 /// Enable or disable launch-at-login; errors if the OS API rejects the change.
 pub fn set_enabled(enabled: bool) -> io::Result<()> {
     if sm_app_service_class().is_some() {
-        sm_set_registered(enabled)
+        sm_set_registered(enabled)?;
     } else {
-        launch_agent_set(enabled)
+        launch_agent_set(enabled)?;
     }
+    // Explicit choices in Settings or the menu also suppress the first-run offer.
+    crate::preferences::mark_login_offer_decided();
+    Ok(())
 }
 
 // ────────────────────────── SMAppService (macOS 13+) ──────────────────────────
