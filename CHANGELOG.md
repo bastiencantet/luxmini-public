@@ -18,6 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Update the URL parser to 2.5.9 to address RUSTSEC-2026-0592.
 - Activate the app when reopening Settings so the existing window receives
   keyboard focus and opens in the active workspace.
 - Keep the idle override active across overlapping display and system sleep,
