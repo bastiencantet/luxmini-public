@@ -6,6 +6,15 @@
     <description>LuxMini — Mac Mini front LED controller, release feed</description>
     <language>en</language>
     <item>
+      <title>Version 0.5.4</title>
+      <sparkle:version>0.5.4</sparkle:version>
+      <sparkle:shortVersionString>0.5.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 23 Nov 2026 23:06:57 +0000</pubDate>
+      <description><![CDATA[Fix Settings reopening without keyboard focus. Choose Mac sleep or display sleep for idle brightness (beta, off by default). Restore brightness correctly across overlapping sleep/wake events. Offer launch at login after setup and remember your choice. Update the URL parser security dependency.]]></description>
+      <enclosure url="https://dlkmv09vcurlo2fb.public.blob.vercel-storage.com/LuxMini-0.5.4.dmg" sparkle:edSignature="JAG964W4w9bdK/Tq0rujwrVuOkucGog+KNqpgFWIUOUx0aSwrscfod3LuRCOxZd2fPrEc42mOFQysj7t81XCBg==" length="8158088" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 0.5.3</title>
       <sparkle:version>0.5.3</sparkle:version>
       <sparkle:shortVersionString>0.5.3</sparkle:shortVersionString>

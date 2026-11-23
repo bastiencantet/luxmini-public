@@ -318,6 +318,7 @@ mod tests {
         let _ = state.enter_sleep(preferences::SleepSettings {
             enabled: true,
             brightness_pct: 0,
+            trigger: crate::power::Trigger::SystemSleep,
         });
         for command in [
             LightRequest::On(true),

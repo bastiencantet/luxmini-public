@@ -276,6 +276,7 @@ fn simulated_sleep_cycle(
     preferences::save_sleep_settings(preferences::SleepSettings {
         enabled: true,
         brightness_pct: 0,
+        trigger: crate::power::Trigger::SystemSleep,
     });
     super::record(crate::journey::Stage::SleepOptionEnabled);
     let handler = crate::ui::handler::Handler::new(mtm);

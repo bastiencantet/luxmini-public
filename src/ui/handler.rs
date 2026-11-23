@@ -167,29 +167,36 @@ define_class!(
             self.sync_autodim_menu();
         }
 
-        // System sleep only: display sleep never changes the light.
         #[unsafe(method(workspaceWillSleep:))]
         fn workspace_will_sleep(&self, _note: &AnyObject) {
-            let settings = preferences::load_sleep_settings();
-            if let Some(applied) = with_state(|s| s.enter_sleep(settings)).flatten() {
-                *self.ivars().sleep_cycle.borrow_mut() = crate::product_metrics::begin_sleep_cycle(applied);
-            }
+            self.handle_power_event(crate::power::Event::SystemSleep);
         }
 
         #[unsafe(method(workspaceDidWake:))]
         fn workspace_did_wake(&self, _note: &AnyObject) {
-            if let Some(restored) = with_state(|s| s.leave_sleep(schedule::current_target())).flatten() {
-                if let Some(cycle) = self.ivars().sleep_cycle.borrow_mut().take() {
-                    crate::product_metrics::finish_sleep_cycle(&cycle, restored);
-                }
-            }
-            schedule::kick();
-            self.refresh_ui();
+            self.handle_power_event(crate::power::Event::SystemWake);
+        }
+
+        #[unsafe(method(workspaceScreensDidSleep:))]
+        fn workspace_screens_did_sleep(&self, _note: &AnyObject) {
+            self.handle_power_event(crate::power::Event::DisplaysSleep);
+        }
+
+        #[unsafe(method(workspaceScreensDidWake:))]
+        fn workspace_screens_did_wake(&self, _note: &AnyObject) {
+            self.handle_power_event(crate::power::Event::DisplaysWake);
         }
 
         #[unsafe(method(saveSleepSettings:))]
         fn save_sleep_settings(&self, _sender: &AnyObject) {
             settings::save_sleep(self);
+        }
+
+        #[unsafe(method(selectSleepTrigger:))]
+        fn select_sleep_trigger(&self, sender: &AnyObject) {
+            // SAFETY: both radio buttons are native NSControls with integer tags.
+            let tag: isize = unsafe { msg_send![sender, tag] };
+            settings::select_sleep_trigger(self, tag);
         }
 
         #[unsafe(method(reportSleepBug:))]
@@ -515,6 +522,53 @@ define_class!(
 );
 
 impl Handler {
+    fn handle_power_event(&self, event: crate::power::Event) {
+        let settings = preferences::load_sleep_settings();
+        let change = with_state(|state| {
+            state.handle_power_event(event, settings, schedule::current_target())
+        })
+        .flatten();
+        self.note_power_change(change, Some(event), settings);
+        if matches!(
+            event,
+            crate::power::Event::SystemWake | crate::power::Event::DisplaysWake
+        ) {
+            schedule::kick();
+        }
+        self.refresh_ui();
+    }
+
+    pub fn idle_settings_changed(&self, settings: preferences::SleepSettings) {
+        let change =
+            with_state(|state| state.update_sleep_settings(settings, schedule::current_target()))
+                .flatten();
+        self.note_power_change(change, None, settings);
+        self.refresh_ui();
+    }
+
+    fn note_power_change(
+        &self,
+        change: Option<crate::power::Change>,
+        event: Option<crate::power::Event>,
+        settings: preferences::SleepSettings,
+    ) {
+        match change {
+            Some(crate::power::Change::Applied(applied))
+                if event == Some(crate::power::Event::SystemSleep)
+                    && settings.trigger == crate::power::Trigger::SystemSleep =>
+            {
+                *self.ivars().sleep_cycle.borrow_mut() =
+                    crate::product_metrics::begin_sleep_cycle(applied);
+            }
+            Some(crate::power::Change::Restored(restored)) => {
+                if let Some(cycle) = self.ivars().sleep_cycle.borrow_mut().take() {
+                    crate::product_metrics::finish_sleep_cycle(&cycle, restored);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = mtm.alloc::<Self>();
         let this = this.set_ivars(HandlerIvars {
@@ -890,10 +944,10 @@ fn open_feedback() {
 }
 
 fn sleep_feedback_url(version: &str, model: &str, sleep: preferences::SleepSettings) -> String {
-    let title = "[Bug] Mac sleep brightness (beta)";
+    let title = "[Bug] Idle brightness (beta)";
     let body = format!(
-        "## Mac sleep brightness (beta)\n\nApp version: {version}\nMac model: {model}\nSleep override enabled: {}\nSleep brightness: {}%\n\n## What happened?\n\nDescribe what happened when the Mac went to sleep or woke up.\n\n## Expected behavior\n\n\n## Steps to reproduce\n\n1. \n",
-        sleep.enabled, sleep.brightness_pct,
+        "## Idle brightness (beta)\n\nApp version: {version}\nMac model: {model}\nIdle override enabled: {}\nIdle brightness: {}%\nIdle trigger: {}\n\n## What happened?\n\nDescribe whether the Mac slept or only its displays turned off, and what happened on wake.\n\n## Expected behavior\n\n\n## Steps to reproduce\n\n1. \n",
+        sleep.enabled, sleep.brightness_pct, sleep.trigger.label(),
     );
     format!(
         "https://github.com/bastiencantet/luxmini-public/issues/new?title={}&body={}",
@@ -997,13 +1051,25 @@ mod sleep_feedback_tests {
             crate::preferences::SleepSettings {
                 enabled: true,
                 brightness_pct: 5,
+                trigger: crate::power::Trigger::SystemSleep,
             },
         );
         assert!(url.starts_with("https://github.com/bastiencantet/luxmini-public/issues/new?"));
-        assert!(url.contains("title=%5BBug%5D%20Mac%20sleep%20brightness%20%28beta%29"));
+        assert!(url.contains("title=%5BBug%5D%20Idle%20brightness%20%28beta%29"));
         assert!(url.contains("App%20version%3A%200.5.2"));
         assert!(url.contains("Mac%20model%3A%20Mac18%2C5"));
-        assert!(url.contains("Sleep%20brightness%3A%205%25"));
+        assert!(url.contains("Idle%20brightness%3A%205%25"));
+        assert!(url.contains("Idle%20trigger%3A%20Mac%20system%20sleep"));
+        let display = super::sleep_feedback_url(
+            "0.5.3",
+            "Mac16,10",
+            crate::preferences::SleepSettings {
+                enabled: true,
+                brightness_pct: 0,
+                trigger: crate::power::Trigger::DisplaySleep,
+            },
+        );
+        assert!(display.contains("Idle%20trigger%3A%20Display%20sleep"));
         assert!(!url.contains('\n'));
     }
 }
